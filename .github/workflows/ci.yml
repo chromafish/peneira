@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install jj
+        run: brew install jj
+
+      - name: Versions
+        run: |
+          go version
+          jj --version
+
+      - name: gofmt
+        run: make fmtcheck
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: make lint
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Bundle
+        run: make app

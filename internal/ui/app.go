@@ -1,0 +1,658 @@
+package ui
+
+import (
+	"context"
+	"fmt"
+	"image"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"gioui.org/app"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
+
+	"github.com/chromafish/peneira/internal/state"
+	"github.com/chromafish/peneira/internal/vcs"
+
+	"github.com/chromafish/peneira/reef"
+)
+
+// Pane identifies which of the three columns has keyboard focus. They are
+// declared in the order the columns are drawn, so a Pane is also the column
+// index the splits know it by.
+type Pane int
+
+const (
+	PaneRevs Pane = iota
+	PaneFiles
+	PaneDiff
+	numPanes
+)
+
+// App is the whole application state. Everything the interface draws is read
+// from here on the main goroutine; background work posts closures back through
+// apply rather than writing fields directly.
+type App struct {
+	win *app.Window
+	// ui is the design system: the palette, the type and the controls, plus
+	// which control the pointer is over. Everything drawn goes through it.
+	ui    *reef.UI
+	repo  vcs.Repo
+	store *state.Store
+
+	repoName string
+	backend  vcs.Info
+
+	// Preferences, and the sheet that sets them: the colour schemes and
+	// typefaces found on this machine, and where the cursor is in each of the
+	// two lists.
+	settings      state.Settings
+	settingsOpen  bool
+	settingsList  int
+	families      []string
+	familySel     int
+	familyFirst   int
+	familiesAsked bool
+	familiesDone  bool
+	schemes       []reef.Scheme
+	schemesAsked  bool
+	schemeSel     int
+	schemeFirst   int
+	schemesDone   bool
+
+	// The open-a-repository screen, shown whenever repo is nil.
+	recent     []state.Recent
+	recentSel  int
+	openErr    string
+	openButton int  // pointer tag for the repository name in the header
+	picking    bool // a directory chooser is up
+
+	// The column widths the last frame actually drew. State can change part
+	// way through a frame, so these record what ended up on screen rather than
+	// what was intended.
+	drawnRevsW  int
+	drawnFilesW int
+
+	// Where each diff row was drawn in the last frame, in window coordinates.
+	// Rows are not all one height — a file heading, a gap and a note each take
+	// their own — so hit testing asks what was drawn rather than recomputing
+	// it and drifting.
+	rowHeights map[int]int
+	rowTops    map[int]int
+	nextRows   map[int]int // filled as the frame is drawn, adopted at its end
+
+	// pinFile is the file a jump has just put on screen, and lastFirst the
+	// scroll position the previous frame ended at. Together they tell a jump
+	// apart from a scroll, so the two never fight over the selection.
+	pinFile   int
+	lastFirst int
+
+	// The run of code swept out with the pointer or the keyboard.
+	sel     Sel
+	selDrag bool
+	selRow  int // the row a pointer sweep started on
+
+	// Revision list.
+	revsetInput *reef.Field
+	revset      string
+	revs        []vcs.Revision
+	revSel      int
+	revList     layout.List
+	graphLanes  int
+
+	// The diff currently framed, and the revision it belongs to.
+	spec vcs.DiffSpec
+	rev  vcs.Revision
+	desc string
+
+	// File manifest.
+	files    []FileRow
+	fileSel  int
+	fileList layout.List
+
+	// Diff body.
+	diff       *DiffDoc
+	diffList   layout.List // indexed by row; the position both views agree on
+	pairList   layout.List // and by two-column line, for the side by side view
+	diffX      int         // horizontal scroll, in character cells
+	sideBySide bool
+	draft      *draft
+	help       bool
+	hoverRow   int // diff row under the pointer, -1 when none
+
+	// Where the panes ended up in the last frame. Recorded during layout
+	// rather than recomputed, so hit testing and tests cannot drift out of
+	// step with the drawing code.
+	bodyTop    int
+	panelHeadH int
+	filesColX  int
+	viewedBoxX int
+	viewedBoxW int
+	diffColX   int
+	diffBodyY  int
+
+	focus  Pane
+	splits *reef.Splits
+
+	status   string
+	statusAt time.Time
+	failure  string
+	busy     int
+
+	// Text waiting to be put on the clipboard; written during the next frame,
+	// since clipboard writes are frame commands.
+	clipboard string
+	notesOpen bool
+
+	// Background results are queued here and applied at the start of a frame.
+	mu      sync.Mutex
+	pending []func()
+
+	// generation is bumped whenever the selection moves, so results from a
+	// superseded request are dropped instead of overwriting fresher ones.
+	generation int
+	stopDiff   context.CancelFunc // stops the diff still streaming, if any
+}
+
+// FileRow is one entry in the manifest, joining the diff's view of a file with
+// the notes recorded against it.
+type FileRow struct {
+	vcs.FileChange
+	Viewed   bool
+	Stale    bool
+	Comments int
+	Open     int
+}
+
+// New builds the application around an open repository.
+func New(repo vcs.Repo, store *state.Store, revset string) *App {
+	a := newApp(repo, store, revset)
+	a.win = new(app.Window)
+	a.win.Option(
+		app.Size(unit.Dp(1280), unit.Dp(820)),
+		app.MinSize(unit.Dp(720), unit.Dp(420)),
+	)
+	a.setTitle()
+	return a
+}
+
+// NewOffscreen builds an application with no window, for laying frames out in
+// tests.
+func NewOffscreen(repo vcs.Repo, store *state.Store, revset string) *App {
+	return newApp(repo, store, revset)
+}
+
+func newApp(repo vcs.Repo, store *state.Store, revset string) *App {
+	a := &App{
+		ui:       reef.New(),
+		repo:     repo,
+		store:    store,
+		revset:   revset,
+		splits:   reef.NewSplits(0.22, 0.23),
+		recent:   state.LoadRecent(),
+		settings: state.LoadSettings(),
+		pinFile:  -1,
+	}
+	a.applySettings()
+	if repo != nil {
+		a.repoName = filepath.Base(repo.Root())
+		a.recent = state.RememberRecent(repo.Root())
+	}
+	a.revsetInput = reef.NewField(revset)
+	if repo != nil {
+		a.adoptBackend(repo)
+	}
+	a.hoverRow = -1
+	a.revList.Axis = layout.Vertical
+	a.fileList.Axis = layout.Vertical
+	a.diffList.Axis = layout.Vertical
+	a.pairList.Axis = layout.Vertical
+	return a
+}
+
+// adoptBackend takes the labels and the placeholder from whichever backend was
+// opened. The two query languages have nothing in common, so the field says
+// which one it is taking rather than leaving a person to guess.
+func (a *App) adoptBackend(r vcs.Repo) {
+	a.backend = r.Info()
+	a.revsetInput.Placeholder = a.backend.QueryHint
+}
+
+// Layout draws one frame. Exported so frames can be rendered without a window.
+func (a *App) Layout(gtx layout.Context) layout.Dimensions {
+	a.applyPending()
+	return a.layout(gtx)
+}
+
+// Idle reports whether all background work has finished. A result is applied
+// before the work it came from is counted done, so an idle application has
+// everything it fetched on screen.
+func (a *App) Idle() bool { return a.busy == 0 }
+
+// Start kicks off the initial load without running an event loop.
+func (a *App) Start() {
+	if a.repo == nil {
+		return
+	}
+	a.reload(true)
+}
+
+// setTitle names the window after whatever is open.
+func (a *App) setTitle() {
+	if a.win == nil {
+		return
+	}
+	if a.repoName == "" {
+		a.win.Option(app.Title("Peneira"))
+		return
+	}
+	a.win.Option(app.Title("Peneira — " + a.repoName))
+}
+
+// Run drives the window until it closes.
+func (a *App) Run() error {
+	startTrace()
+	a.Start()
+
+	var ops op.Ops
+	for {
+		switch e := a.win.Event().(type) {
+		case app.DestroyEvent:
+			return e.Err
+		case app.FrameEvent:
+			done := traceFrame()
+			began := time.Now()
+			gtx := app.NewContext(&ops, e)
+			a.applyPending()
+			a.layout(gtx)
+			laid := time.Since(began)
+			e.Frame(gtx.Ops)
+			done(laid)
+		}
+	}
+}
+
+func (a *App) background(work func(context.Context) func()) {
+	a.backgroundIn(context.Background(), 30*time.Second, work)
+}
+
+// backgroundIn runs work off the main goroutine and queues the closure it
+// returns, which applies the result during the next frame.
+//
+// The limit exists for a query that has not answered in half a minute, which
+// is wedged rather than slow. A limit of zero leaves the work to guard itself,
+// and the parent context is how a caller stops work it has superseded.
+func (a *App) backgroundIn(parent context.Context, limit time.Duration, work func(context.Context) func()) {
+	a.busy++
+	go func() {
+		ctx := parent
+		if limit > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(parent, limit)
+			defer cancel()
+		}
+		apply := work(ctx)
+		a.after(func() {
+			a.busy--
+			if apply != nil {
+				apply()
+			}
+		})
+	}()
+}
+
+// supersede marks everything in flight as stale. A diff still streaming is
+// stopped rather than left to run: it would otherwise read a change to its end
+// for a revision that is no longer on screen, holding the tool open and every
+// line it has parsed alive.
+func (a *App) supersede() {
+	a.generation++
+	if a.stopDiff != nil {
+		a.stopDiff()
+		a.stopDiff = nil
+	}
+}
+
+func (a *App) applyPending() {
+	a.mu.Lock()
+	pending := a.pending
+	a.pending = nil
+	a.mu.Unlock()
+	for _, f := range pending {
+		f()
+	}
+}
+
+// fail records an error for the status bar. Errors from jj are usually a bad
+// revset, which the user fixes by typing, so they belong in the chrome rather
+// than in a dialog.
+func (a *App) fail(err error) {
+	if err != nil {
+		a.failure = err.Error()
+		a.statusAt = time.Now()
+	}
+}
+
+func (a *App) note(format string, args ...any) {
+	a.status = fmt.Sprintf(format, args...)
+	a.failure = ""
+	a.statusAt = time.Now()
+}
+
+// reload re-evaluates the revset. When snapshot is set, jj is allowed to
+// record the working copy first, so edits on disk show up.
+func (a *App) reload(snapshot bool) {
+	if a.repo == nil {
+		return
+	}
+	revset := a.revset
+	if revset == "" {
+		revset = a.backend.DefaultQuery
+	}
+	keep := ""
+	if a.revSel < len(a.revs) {
+		keep = a.revs[a.revSel].ChangeID
+	}
+	a.background(func(ctx context.Context) func() {
+		if snapshot {
+			if err := a.repo.Snapshot(ctx); err != nil {
+				return func() { a.fail(err) }
+			}
+		}
+		revs, err := a.repo.Log(ctx, revset, 500)
+		if err != nil {
+			return func() { a.fail(err) }
+		}
+		vcs.BuildGraph(revs)
+		return func() {
+			a.failure = ""
+			a.revs = revs
+			a.revSel = 0
+			for i, r := range revs {
+				if r.ChangeID == keep {
+					a.revSel = i
+					break
+				}
+			}
+			a.selectRev(a.revSel)
+		}
+	})
+}
+
+// selectRev frames a revision's diff and loads its file manifest.
+func (a *App) selectRev(i int) {
+	if i < 0 || i >= len(a.revs) {
+		a.revs = a.revs[:0]
+		a.files = nil
+		a.diff = nil
+		return
+	}
+	a.revSel = i
+	a.rev = a.revs[i]
+	a.spec = vcs.DiffSpec{Kind: vcs.DiffChange, Rev: a.rev.ChangeID}
+	a.loadFiles()
+}
+
+func (a *App) loadFiles() {
+	if a.repo == nil {
+		return
+	}
+	a.supersede()
+	gen := a.generation
+	spec := a.spec
+	rev := a.rev
+	a.files = nil
+	a.diff = nil
+	a.fileSel = 0
+
+	a.background(func(ctx context.Context) func() {
+		files, err := a.repo.Files(ctx, spec)
+		desc, _ := a.repo.Description(ctx, rev.ChangeID)
+		return func() {
+			if gen != a.generation {
+				return
+			}
+			if err != nil {
+				a.fail(err)
+				return
+			}
+			a.failure = ""
+			a.desc = desc
+			a.files = a.decorate(rev, files)
+			a.fileList.Position.First = 0
+			a.fileList.Position.Offset = 0
+			a.fileSel = 0
+			a.loadDiff()
+		}
+	})
+}
+
+// after queues work to run at the start of the next frame.
+//
+// A control drawn inside the diff list cannot restructure that list while it is
+// being laid out — the list is part way through walking rows it has already
+// counted — so anything that adds or removes rows goes through here. It is also
+// how background work hands over a result, including one that arrives in
+// pieces: a diff is posted file by file as it is read.
+func (a *App) after(f func()) {
+	a.mu.Lock()
+	a.pending = append(a.pending, f)
+	a.mu.Unlock()
+	if a.win != nil {
+		a.win.Invalidate()
+	}
+}
+
+// decorate joins each changed file with what has been recorded about it.
+func (a *App) decorate(rev vcs.Revision, files []vcs.FileChange) []FileRow {
+	rows := make([]FileRow, len(files))
+	for i, f := range files {
+		viewed, stale := a.store.Viewed(rev.ChangeIDFull, f.Path, rev.CommitIDFull)
+		total, open := a.store.CommentCount(rev.ChangeIDFull, f.Path)
+		rows[i] = FileRow{FileChange: f, Viewed: viewed, Stale: stale, Comments: total, Open: open}
+	}
+	return rows
+}
+
+func (a *App) refreshRow(i int) {
+	if i < 0 || i >= len(a.files) {
+		return
+	}
+	f := &a.files[i]
+	f.Viewed, f.Stale = a.store.Viewed(a.rev.ChangeIDFull, f.Path, a.rev.CommitIDFull)
+	f.Comments, f.Open = a.store.CommentCount(a.rev.ChangeIDFull, f.Path)
+}
+
+func (a *App) layout(gtx layout.Context) layout.Dimensions {
+	// The chosen body size is applied once, here, by scaling the frame's own
+	// point size: from this line down every size in the design system's type
+	// scale is the chosen size rather than the token's.
+	gtx = a.ui.Sized(gtx)
+
+	a.handleKeys(gtx)
+	reef.Fill(gtx, gtx.Constraints.Max, a.ui.P.Bg)
+
+	size := gtx.Constraints.Max
+	body := a.layoutBody
+	if a.repo == nil {
+		body = a.layoutOpen
+	}
+
+	// The two strips are fixed in device pixels, so the chrome holds still as
+	// the type is set larger — up to the point where a strip would clip its own
+	// label, which is worse than a strip a few pixels taller.
+	headerH := a.ui.MastheadHeight(gtx)
+	statusH := a.ui.StripHeight(gtx)
+	bodyH := size.Y - headerH - statusH
+	a.bodyTop = headerH
+
+	a.layoutHeader(gtx, size.X, headerH)
+
+	if bodyH > 0 {
+		fill(gtx, image.Pt(0, headerH), image.Pt(size.X, bodyH), body)
+	}
+	fill(gtx, image.Pt(0, size.Y-statusH), image.Pt(size.X, statusH), a.layoutStatus)
+
+	a.layoutNotes(gtx)
+	a.layoutHelp(gtx)
+	a.layoutSettings(gtx)
+	a.ui.CornerTicks(gtx, size)
+	a.flushClipboard(gtx)
+	return layout.Dimensions{Size: size}
+}
+
+// layoutBody draws the three columns and the draggable rules between them.
+func (a *App) layoutBody(gtx layout.Context) {
+	size := gtx.Constraints.Max
+	widths := a.splits.Widths(gtx, size.X)
+	revsW, filesW := widths[0], widths[1]
+	a.drawnRevsW, a.drawnFilesW = revsW, filesW
+
+	// Each column is drawn into its own exact space, so a panel never has to
+	// know where in the window it is.
+	at := func(x, w int, draw func(layout.Context)) {
+		if w <= 0 {
+			return
+		}
+		fill(gtx, image.Pt(x, 0), image.Pt(w, size.Y), draw)
+	}
+	column := func(x, w int, pane Pane, title string, controls, body func(layout.Context)) {
+		at(x, w, func(gtx layout.Context) { a.panel(gtx, title, pane, controls, body) })
+	}
+	rail := func(x, w int, pane Pane, letter string, count int) {
+		at(x, w, func(gtx layout.Context) {
+			a.ui.Rail(gtx, railTag{pane}, letter, count, func() { a.showPane(pane) })
+		})
+	}
+
+	if a.splits.Hidden(int(PaneRevs)) {
+		rail(0, revsW, PaneRevs, "R", len(a.revs))
+	} else {
+		column(0, revsW, PaneRevs, "REVISIONS", nil, a.layoutRevs)
+	}
+	a.filesColX = revsW + 1
+	if a.splits.Hidden(int(PaneFiles)) {
+		rail(a.filesColX, filesW, PaneFiles, "F", len(a.files))
+	} else {
+		column(a.filesColX, filesW, PaneFiles, a.manifestTitle(), nil, a.layoutFiles)
+	}
+	a.diffColX = revsW + filesW + 2
+	column(a.diffColX, size.X-a.diffColX, PaneDiff, a.diffTitle(), a.diffControls, a.layoutDiff)
+
+	reef.VLine(gtx, revsW, size.Y, a.ui.P.Rule)
+	reef.VLine(gtx, revsW+filesW+1, size.Y, a.ui.P.Rule)
+	a.splits.Handles(gtx, size, widths)
+}
+
+// manifestTitle names the pane and says how much of it is done, so progress is
+// visible without counting boxes.
+func (a *App) manifestTitle() string {
+	read, total := a.readCount()
+	if total == 0 {
+		return "MANIFEST"
+	}
+	return fmt.Sprintf("MANIFEST · %d/%d READ", read, total)
+}
+
+func (a *App) diffTitle() string {
+	if a.spec.Kind == vcs.DiffRange {
+		return "DIFF · RANGE"
+	}
+	return "DIFF"
+}
+
+// panel frames one column: a header of letterspaced capitals, a hairline, and
+// the body below it. The design system draws the frame; what is decided here
+// is what goes in the header, which for a tree is the control that puts it
+// away.
+func (a *App) panel(gtx layout.Context, title string, pane Pane, controls, body func(layout.Context)) {
+	tree := pane == PaneRevs || pane == PaneFiles
+
+	// A tree's header carries the control that puts it away at its right end,
+	// and the title stops short of it rather than printing under it.
+	reserve := gtx.Dp(reef.PadInline)
+	head := a.ui.StripHeight(gtx)
+	if tree {
+		reserve += head
+	}
+
+	a.panelHeadH = a.ui.Panel(gtx, reef.Panel{
+		Title:   title,
+		Focused: a.focus == pane,
+		Reserve: reserve,
+		Header: func(gtx layout.Context) {
+			if controls != nil {
+				controls(gtx)
+			}
+			// Either tree can be put away to give the diff the window, and the
+			// way to do it is a control in its own header rather than a
+			// shortcut nobody sees.
+			if tree {
+				size := gtx.Constraints.Max
+				a.ui.Collapse(gtx, size.X, size.Y, railTag{pane}, func() { a.hidePane(pane) })
+			}
+		},
+		Body: body,
+	})
+}
+
+// railTag names the control that puts a column away and the rail that brings
+// it back. They are never both on screen for the same pane, so they share it.
+type railTag struct{ pane Pane }
+
+// hidePane puts a tree away. Focus follows: a pane you cannot see is not a
+// pane you can be working in.
+func (a *App) hidePane(pane Pane) {
+	if a.splits.Hidden(int(pane)) {
+		return
+	}
+	a.splits.Toggle(int(pane))
+	if a.focus == pane {
+		a.focus = PaneDiff
+	}
+	a.note("%s hidden", paneName(pane))
+}
+
+func (a *App) showPane(pane Pane) {
+	if !a.splits.Hidden(int(pane)) {
+		return
+	}
+	a.splits.Toggle(int(pane))
+	a.focus = pane
+}
+
+// togglePane is the keyboard's way to the same thing.
+func (a *App) togglePane(pane Pane) {
+	if a.splits.Hidden(int(pane)) {
+		a.showPane(pane)
+		return
+	}
+	a.hidePane(pane)
+}
+
+// focusCode puts both trees away, or brings both back: the one keystroke for
+// giving the whole window to the code.
+func (a *App) focusCode() {
+	if a.splits.Hidden(int(PaneRevs)) && a.splits.Hidden(int(PaneFiles)) {
+		a.splits.SetHidden(int(PaneRevs), false)
+		a.splits.SetHidden(int(PaneFiles), false)
+		a.note("trees back")
+		return
+	}
+	a.splits.SetHidden(int(PaneRevs), true)
+	a.splits.SetHidden(int(PaneFiles), true)
+	a.focus = PaneDiff
+	a.note("code only — z brings the trees back")
+}
+
+func paneName(p Pane) string {
+	switch p {
+	case PaneRevs:
+		return "revisions"
+	case PaneFiles:
+		return "manifest"
+	}
+	return "diff"
+}

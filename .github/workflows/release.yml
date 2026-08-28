@@ -1,0 +1,51 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install jj
+        run: brew install jj
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: make dist VERSION="${GITHUB_REF_NAME}"
+
+      - name: Release notes
+        run: |
+          set -o pipefail
+          packaging/release-notes.sh "${GITHUB_REF_NAME}" | tee build/notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease=--prerelease ;;
+            *) prerelease= ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" $prerelease \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file build/notes.md \
+            "build/Peneira-$GITHUB_REF_NAME-macos-universal.zip" \
+            "build/peneira-$GITHUB_REF_NAME-macos-universal.tar.gz"

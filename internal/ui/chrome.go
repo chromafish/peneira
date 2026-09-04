@@ -128,6 +128,13 @@ func (a *App) layoutStatus(gtx layout.Context) {
 	}) + gtx.Dp(reef.Sp3)
 	rightX -= a.controlRight(gtx, rightX, size.Y, tagSettings, "TYPE  ⌘,", ui.P.Muted,
 		a.toggleSettings) + gtx.Dp(reef.Sp3)
+	if a.repo != nil {
+		c := ui.P.Muted
+		if a.sondaOpen() {
+			c = ui.P.Action
+		}
+		rightX -= a.controlRight(gtx, rightX, size.Y, tagSonda, "SONDA  S", c, a.toggleSonda) + gtx.Dp(reef.Sp3)
+	}
 
 	if n := a.openCount(); n > 0 {
 		label := fmt.Sprintf("COPY %d NOTES FOR AGENT", n)
@@ -228,6 +235,9 @@ func (a *App) statusLeft() string {
 	if a.repo == nil {
 		return "⌘o choose a folder · j/k recent · enter open"
 	}
+	if a.sondaOpen() {
+		return "r run · x stop · j/k move · tab pane · / filter · l level · w raw · esc back"
+	}
 	switch a.focus {
 	case PaneRevs:
 		return fmt.Sprintf("j/k move · enter files · / %s · r refresh · ? keys",
@@ -255,6 +265,10 @@ func (a *App) handleKeys(gtx layout.Context) {
 	if a.draft != nil {
 		a.draft.field.Update(gtx)
 		editing = editing || a.draft.field.Focused()
+	}
+	if a.sonda != nil {
+		a.sonda.filter.Update(gtx)
+		editing = editing || a.sonda.filter.Focused()
 	}
 
 	filters := []event.Filter{
@@ -305,7 +319,7 @@ func (a *App) handleKeys(gtx layout.Context) {
 // as a list so the filters and the help sheet cannot drift apart.
 var commandKeys = []key.Name{
 	"J", "K", "H", "L", "G", "V", "C", "D", "R", "T", "N", "P", "Y",
-	"Z", "E", "1", "2",
+	"Z", "E", "S", "X", "W", "1", "2",
 	// The settings sheet's own keys. Outside it they are bound to nothing, and
 	// a key bound to nothing is not a key another pane gets to reinterpret.
 	",", "-", "=",
@@ -341,6 +355,11 @@ func (a *App) command(gtx layout.Context, ke key.Event, editing bool) {
 	// so a keystroke meant for it never also moves something underneath it.
 	if a.settingsOpen {
 		a.settingsKey(ke.Name)
+		return
+	}
+	// So is the sonda screen: the review is not on screen while it is up.
+	if a.sondaOpen() {
+		a.sondaKey(gtx, ke, editing)
 		return
 	}
 
@@ -435,6 +454,8 @@ func (a *App) command(gtx layout.Context, ke key.Event, editing bool) {
 	case "R":
 		a.reload(true)
 		a.note("refreshed")
+	case "S":
+		a.openSonda()
 	case "/":
 		// Shifted punctuation arrives as the unshifted key with a modifier, so
 		// "?" is spelled this way rather than as its own binding.
@@ -543,6 +564,9 @@ var helpSheet = [][2]string{
 	{"SHIFT-E", "whole file, and back to the hunks"},
 	{"1 / 2", "hide or show the revisions / manifest column"},
 	{"Z", "code only: both trees away, and back"},
+	{"S", "sonda: run the change beside its baseline, and back"},
+	{"SONDA: R / X", "run both / stop both"},
+	{"SONDA: / L W", "filter by text / by level / raw lines"},
 	{"T", "invert palette"},
 	{", / CMD-,", "settings: typeface and size"},
 	{"SHIFT-/", "this sheet"},

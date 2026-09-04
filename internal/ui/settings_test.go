@@ -82,7 +82,7 @@ func TestPreferencesSurviveTheApplication(t *testing.T) {
 		t.Errorf("the settings file records %d pt, want %d", stored, int(want))
 	}
 
-	again := NewOffscreen(h.app.repo, h.app.store, "all()")
+	again := NewOffscreen(h.app.repo, h.app.dir, h.app.store, "all()")
 	if again.ui.Size != want {
 		t.Errorf("a fresh application opened at %v pt, want the %v pt that was set", again.ui.Size, want)
 	}

@@ -156,7 +156,9 @@ func (a *App) openRepo(path string) {
 		}
 		return func() {
 			a.supersede()
+			a.resetSonda()
 			a.repo = opened
+			a.dir = absDir(path, opened)
 			a.adoptBackend(opened)
 			a.store = state.New()
 			a.repoName = filepath.Base(opened.Root())

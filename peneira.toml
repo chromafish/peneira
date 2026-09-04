@@ -1,0 +1,6 @@
+[[target]]
+name = "peneira"
+dir = "."
+build = ["make", "build"]
+run = ["./peneira"]
+env = { REVIEW_TRACE = "1" }

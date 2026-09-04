@@ -60,6 +60,14 @@ type Repo interface {
 	// than a revision because naming the other side of a diff is the tool's
 	// business, not the caller's.
 	FileContent(ctx context.Context, spec DiffSpec, path string, side Side) ([]byte, error)
+
+	// Workspace makes dir a second working copy of the repository, at rev.
+	// The directory is created the first time and moved to the revision
+	// after that, so what a build left in it is still there for the next.
+	// The repository's own working copy is not touched. This is the one
+	// method that writes, and it writes only to dir and to the tool's
+	// records of it.
+	Workspace(ctx context.Context, dir, rev string) error
 }
 
 // Info describes the tool backing a repository.

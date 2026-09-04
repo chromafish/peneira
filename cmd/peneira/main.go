@@ -46,7 +46,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "peneira:", err)
 	}
 
-	a := ui.New(open, store, *revset)
+	a := ui.New(open, dir, store, *revset)
 	go func() {
 		if err := a.Run(); err != nil {
 			fmt.Fprintln(os.Stderr, "peneira:", err)

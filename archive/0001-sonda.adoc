@@ -1,0 +1,214 @@
+= 0001 — Sonda
+:toc: macro
+:toclevels: 3
+
+Status: draft +
+Date: 2026-09-03
+
+toc::[]
+
+== Context
+
+Peneira reviews a diff. A diff states what the text of a program became. It
+does not state what the program does when it runs, so behaviour is judged by
+reading, and the change is approved on the strength of that reading.
+
+Sonda builds and starts the program from the working copy under review, and
+does the same at the revision the change is measured against. What each run
+writes is captured, and what differs between the two is what the review reads.
+A change meant to alter behaviour shows that alteration. A change meant to
+leave behaviour alone shows little or nothing, and that is a result as well.
+
+Log statements are the first output sonda reads.
+
+== Scope
+
+* Describing how a program in the repository is built and run.
+* Building and starting it from the working copy under review.
+* Capturing its output as it is written.
+* Parsing that output into logs.
+* Doing the same at the baseline revision.
+* Showing both runs at once, formatted and highlighted.
+
+== Abstractions
+
+=== Target
+
+One program in the repository that can be built and run: a directory, a build
+command, a run command, an environment. A repository holding a single program
+has one target; a monorepo has as many as it has programs, and a review uses
+whichever of them the change reaches.
+
+=== Run
+
+One execution of a target at one revision, start to exit. Holds the revision it
+was made at, when it began, how it ended, and its logs in order.
+
+A review uses two: one at the revision under review, and one at the revision
+the change is measured against, which is the parent of the change, the branch a
+pull request targets, or a revision named by hand. One run states what the
+program did. Two runs state what the change did.
+
+=== Log
+
+One line of output. An arrival time and the raw line, plus a timestamp, level,
+message, structured fields and source location when the format carries them.
+
+== Mechanics
+
+=== Defining a target
+
+A target definition supplies four things: the directory both commands run in,
+relative to the file that declares it; the command that builds; the command that
+starts the program; and any environment the commands need on top of what they
+inherit. Commands are argument lists, not shell strings, so nothing depends on
+a shell being present or on quoting rules.
+
+The build command may be absent. Interpreted programs and `go run` style
+commands build as part of starting.
+
+Definitions are read from the directory peneira was opened on. A monorepo
+opened at its root declares every program it holds; opened at one program's
+directory, it declares that one, and the rest are not the review's concern.
+
+A review picks one target to run, and the same definition is used for both
+revisions, since a comparison between two differently built programs says
+nothing.
+
+=== Building a target
+
+The build command runs first, in the target's directory, against the working
+copy as it stands. Standard output and standard error are captured together,
+since a failing build is read the way a person reads it at a terminal.
+
+A non-zero exit ends the attempt, and what the build printed is what gets
+reported. The exit status alone is never the message.
+
+=== Running a target
+
+The run command starts as a child process in its own process group, so a
+program that spawns children can be stopped as a whole.
+
+Standard output and standard error are read on separate streams and kept apart.
+Reading is incremental: each stream is split on newlines and every complete
+line is handed on as it arrives, never held until exit. A trailing fragment
+without a newline is held until the next read completes it or the process ends,
+at which point it is emitted as it stands.
+
+Each line is stamped with its arrival time at the moment it is read. That stamp
+is what orders the run. A timestamp parsed out of the line's own text is kept
+as a field and is not the ordering key, because a program's clock and its flush
+order are not the same thing.
+
+Nothing is written to the process. Input comes from whoever is using the
+program, and sonda only reads.
+
+The process is long-lived and stops when asked or when the session ends.
+Stopping means signalling the process group to terminate, then killing it if it
+is still there after a grace period. How the process ended is recorded on the
+run.
+
+=== Parsing logs
+
+Every captured line becomes a log. Parsing only decides how much of it is
+understood.
+
+A line is tried against formats in order, and the first that matches wins:
+
+. A JSON object, one per line. Covers `slog` in JSON, `zap`, `zerolog`, `pino`
+  and the rest of that family.
+. logfmt, `key=value` pairs separated by spaces, with quoted values.
+. Plain text, which always matches.
+
+From a parsed object the well-known keys are lifted into the log's own fields,
+and everything left over stays as structured fields:
+
+* Timestamp from `time`, `ts`, `timestamp` or `@timestamp`.
+* Level from `level`, `lvl` or `severity`.
+* Message from `msg` or `message`.
+* Source from `source`, `caller`, or `file` with `line`. A string of the form
+  `path/file.go:123` and an object of `{file, line, function}` both normalise
+  to a path and a line number.
+
+Plain text yields a log with the raw line as its message and nothing else. It
+is not dropped, and it is not guessed at.
+
+Plain text always matches, so no line fails outright. A line that fell through
+to plain text, following a line that parsed as JSON or logfmt, is joined to
+that log when it continues it. Leading whitespace is one sign of a
+continuation. A panic is the other, and has none: `panic:`, the `goroutine`
+line and the frames under it are all flush left, so a panic opens a trace that
+runs until a line parses again. A panic and its trace stay one log rather than
+becoming a hundred.
+
+Format detection is per line. A run whose output interleaves a framework's JSON
+with a library's plain text stays readable.
+
+=== Getting a baseline to run
+
+Two runs of the same target are needed, one at the revision under review and
+one at the baseline.
+
+The baseline runs from a second working copy at that revision, so the working
+copy under review is not disturbed and the two builds do not overwrite each
+other. There is one such directory per repository, at a stable path: a
+workspace added once and moved between revisions, rather than a checkout made
+fresh for each review.
+
+The stable path is the point. A build finds its own object files and the
+compiler's cache where it left them, keyed in part by where the sources sit, so
+a directory created per review pays for a cold build every time and one that
+stays put pays once.
+
+=== The sonda screen
+
+Sonda is a screen of its own. The revisions, the manifest and the diff already
+fill the window, and two runs shown beside each other need the width of all
+three.
+
+The screen is entered from the review and left back to it. It holds the two
+runs and the controls over them: a button starts them, the baseline first since
+its build has the most to do, and a button stops them.
+
+Both runs have to be put through the same steps. Sonda sends nothing to the
+program and generates no traffic of its own, so a program only logs because
+someone is using it. A comparison is therefore worth exactly as much as the
+repeatability of that use: two runs used differently produce differences that
+say nothing about the change.
+
+Both runs are shown at once, the baseline on the left and the revision under
+review on the right, each in the order its lines arrived. Nothing is aligned
+between them and nothing is hidden.
+
+Formatting uses what parsing produced. A log is laid out in columns: arrival time,
+level, message, and its structured fields after the message with keys and
+values distinguished. A log that did not parse keeps its raw line and sits in
+place among the rest, since output that failed to parse is still output.
+The raw line stays reachable for every log.
+
+Highlighting follows the same rules the rest of peneira highlights code by.
+Levels carry colour, so an error is found without reading for it, and keys,
+quoted strings and numbers are set apart inside a line.
+
+Each pane scrolls on its own, because nothing relates a position in one run to
+a position in the other. A filter by level or by substring applies to both at
+once, so what is on screen stays comparable.
+
+== Data model
+
+Targets, runs and logs are held in memory for the life of the session.
+Nothing is written.
+
+The one thing read from disk is the target description. It is TOML, in the
+directory peneira was opened on, committed alongside the code it describes, so
+that it is the same for everyone reviewing that directory.
+
+[source,toml]
+----
+[[target]]
+name = "peneira"
+dir = "."
+build = ["make", "build"]
+run = ["./peneira"]
+env = { REVIEW_TRACE = "1" }
+----

@@ -42,8 +42,14 @@ type App struct {
 	repo  vcs.Repo
 	store *state.Store
 
+	// dir is the directory peneira was opened on, which may be below the
+	// repository's root. What is declared there is what the review runs.
+	dir      string
 	repoName string
 	backend  vcs.Info
+
+	// The sonda screen, made the first time it is entered.
+	sonda *sondaScreen
 
 	// Preferences, and the sheet that sets them: the colour schemes and
 	// typefaces found on this machine, and where the cursor is in each of the
@@ -166,9 +172,10 @@ type FileRow struct {
 	Open     int
 }
 
-// New builds the application around an open repository.
-func New(repo vcs.Repo, store *state.Store, revset string) *App {
-	a := newApp(repo, store, revset)
+// New builds the application around an open repository. dir is the
+// directory it was opened on.
+func New(repo vcs.Repo, dir string, store *state.Store, revset string) *App {
+	a := newApp(repo, dir, store, revset)
 	a.win = new(app.Window)
 	a.win.Option(
 		app.Size(unit.Dp(1280), unit.Dp(820)),
@@ -180,14 +187,15 @@ func New(repo vcs.Repo, store *state.Store, revset string) *App {
 
 // NewOffscreen builds an application with no window, for laying frames out in
 // tests.
-func NewOffscreen(repo vcs.Repo, store *state.Store, revset string) *App {
-	return newApp(repo, store, revset)
+func NewOffscreen(repo vcs.Repo, dir string, store *state.Store, revset string) *App {
+	return newApp(repo, dir, store, revset)
 }
 
-func newApp(repo vcs.Repo, store *state.Store, revset string) *App {
+func newApp(repo vcs.Repo, dir string, store *state.Store, revset string) *App {
 	a := &App{
 		ui:       reef.New(),
 		repo:     repo,
+		dir:      absDir(dir, repo),
 		store:    store,
 		revset:   revset,
 		splits:   reef.NewSplits(0.22, 0.23),
@@ -210,6 +218,22 @@ func newApp(repo vcs.Repo, store *state.Store, revset string) *App {
 	a.diffList.Axis = layout.Vertical
 	a.pairList.Axis = layout.Vertical
 	return a
+}
+
+// absDir is the opened directory as an absolute path with symbolic links
+// resolved, which is how a tool reports its root, so the two can be compared.
+// It falls back to the root when no directory was given.
+func absDir(dir string, repo vcs.Repo) string {
+	if dir == "" && repo != nil {
+		return repo.Root()
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		return real
+	}
+	return dir
 }
 
 // adoptBackend takes the labels and the placeholder from whichever backend was
@@ -260,6 +284,7 @@ func (a *App) Run() error {
 	for {
 		switch e := a.win.Event().(type) {
 		case app.DestroyEvent:
+			a.shutdownSonda()
 			return e.Err
 		case app.FrameEvent:
 			done := traceFrame()
@@ -476,8 +501,11 @@ func (a *App) layout(gtx layout.Context) layout.Dimensions {
 
 	size := gtx.Constraints.Max
 	body := a.layoutBody
-	if a.repo == nil {
+	switch {
+	case a.repo == nil:
 		body = a.layoutOpen
+	case a.sondaOpen():
+		body = a.layoutSonda
 	}
 
 	// The two strips are fixed in device pixels, so the chrome holds still as

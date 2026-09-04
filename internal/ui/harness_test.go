@@ -73,7 +73,7 @@ func openHarness(t *testing.T, dir string) *harness {
 	}
 	h := &harness{
 		t:    t,
-		app:  NewOffscreen(repo, state.New(), query),
+		app:  NewOffscreen(repo, dir, state.New(), query),
 		size: image.Pt(1400, 900),
 		now:  time.Now(),
 	}

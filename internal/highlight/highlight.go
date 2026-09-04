@@ -57,17 +57,14 @@ const (
 	maxLines = 200_000
 )
 
-// File highlights src, choosing a lexer from the file name and falling back to
-// the content. It returns nil when the file has no known syntax or is too
-// large, which callers render as plain text.
+// File highlights src, choosing a lexer from the file name. It returns nil when
+// the file has no known syntax or is too large, which callers render as plain
+// text.
 func File(path string, src []byte) Lines {
 	if len(src) == 0 || len(src) > maxBytes {
 		return nil
 	}
 	lexer := lexers.Match(path)
-	if lexer == nil {
-		lexer = lexers.Analyse(string(src))
-	}
 	if lexer == nil {
 		return nil
 	}

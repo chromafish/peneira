@@ -8,6 +8,7 @@ import (
 
 	"gioui.org/app"
 
+	"github.com/chromafish/peneira/internal/journal"
 	"github.com/chromafish/peneira/internal/repo"
 	"github.com/chromafish/peneira/internal/state"
 	"github.com/chromafish/peneira/internal/ui"
@@ -35,6 +36,7 @@ func main() {
 	if flag.NArg() > 0 {
 		dir = flag.Arg(0)
 	}
+	journal.Start()
 
 	var (
 		open  vcs.Repo

@@ -57,6 +57,15 @@ const (
 	maxLines = 200_000
 )
 
+// Syntax names the language a path is highlighted as, or returns "" for a
+// path with no known syntax.
+func Syntax(path string) string {
+	if lexer := lexers.Match(path); lexer != nil {
+		return lexer.Config().Name
+	}
+	return ""
+}
+
 // File highlights src, choosing a lexer from the file name. It returns nil when
 // the file has no known syntax or is too large, which callers render as plain
 // text.

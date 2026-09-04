@@ -7,6 +7,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/chromafish/peneira/internal/git"
 	"github.com/chromafish/peneira/internal/jj"
@@ -20,11 +21,14 @@ import (
 // one inside it — is opened as a jj repository. jj is what rewrote those
 // commits, and it is the only one of the two that can say so.
 func Open(ctx context.Context, dir string) (vcs.Repo, error) {
+	var open vcs.Repo
 	if r, err := jj.Open(ctx, dir); err == nil {
-		return r, nil
+		open = r
+	} else if r, err := git.Open(ctx, dir); err == nil {
+		open = r
+	} else {
+		return nil, fmt.Errorf("%s is not inside a jj or git repository", dir)
 	}
-	if r, err := git.Open(ctx, dir); err == nil {
-		return r, nil
-	}
-	return nil, fmt.Errorf("%s is not inside a jj or git repository", dir)
+	slog.Info("repo opened", "vcs", open.Info().Name, "root", open.Root())
+	return open, nil
 }

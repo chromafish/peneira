@@ -7,7 +7,7 @@ import (
 
 func TestJSONLinesLiftTheWellKnownKeys(t *testing.T) {
 	line := `{"time":"2026-09-04T10:00:00.5Z","level":"INFO","msg":"listening","addr":":8080","retries":3,"ok":true,"source":{"function":"main.serve","file":"/src/main.go","line":42}}`
-	l := parse(line)
+	l := Parse(line)
 	if l.Format != JSON {
 		t.Fatalf("format = %v, want JSON", l.Format)
 	}
@@ -40,14 +40,14 @@ func TestJSONLinesLiftTheWellKnownKeys(t *testing.T) {
 // pino writes its levels as numbers and its time in milliseconds; zap writes
 // the caller as one string. All three come back in the same shape.
 func TestOtherJSONLoggers(t *testing.T) {
-	pino := parse(`{"level":30,"time":1756980000123,"pid":1,"msg":"hello"}`)
+	pino := Parse(`{"level":30,"time":1756980000123,"pid":1,"msg":"hello"}`)
 	if pino.Level != "info" || pino.Severity != Info {
 		t.Errorf("pino level = %q %v", pino.Level, pino.Severity)
 	}
 	if want := time.UnixMilli(1756980000123); !pino.Time.Equal(want) {
 		t.Errorf("pino time = %v, want %v", pino.Time, want)
 	}
-	zap := parse(`{"level":"error","ts":1756980000.5,"caller":"pkg/file.go:123","msg":"boom","error":"eof"}`)
+	zap := Parse(`{"level":"error","ts":1756980000.5,"caller":"pkg/file.go:123","msg":"boom","error":"eof"}`)
 	if zap.Severity != Error {
 		t.Errorf("zap severity = %v", zap.Severity)
 	}
@@ -63,7 +63,7 @@ func TestOtherJSONLoggers(t *testing.T) {
 }
 
 func TestLogfmt(t *testing.T) {
-	l := parse(`time=2026-09-04T10:00:00Z level=WARN msg="disk is nearly full" free=12 unit=GB`)
+	l := Parse(`time=2026-09-04T10:00:00Z level=WARN msg="disk is nearly full" free=12 unit=GB`)
 	if l.Format != Logfmt {
 		t.Fatalf("format = %v, want logfmt", l.Format)
 	}
@@ -88,7 +88,7 @@ func TestPlainTextIsNotGuessedAt(t *testing.T) {
 		"INFO[0000] starting port=8080",
 		"",
 	} {
-		l := parse(line)
+		l := Parse(line)
 		if l.Format != Plain {
 			t.Errorf("%q parsed as %v", line, l.Format)
 		}
@@ -99,9 +99,9 @@ func TestPlainTextIsNotGuessedAt(t *testing.T) {
 }
 
 func TestIndentedPlainTextContinuesAStructuredLog(t *testing.T) {
-	first := parse(`level=error msg="query failed"`)
+	first := Parse(`level=error msg="query failed"`)
 	first.Stream = Stderr
-	next := parse("    at db.go:10")
+	next := Parse("    at db.go:10")
 	next.Stream = Stderr
 	if !continues(&first, next) {
 		t.Fatal("an indented line did not continue the log before it")
@@ -120,12 +120,12 @@ func TestIndentedPlainTextContinuesAStructuredLog(t *testing.T) {
 	if continues(&first, other) {
 		t.Error("a line on another stream was joined")
 	}
-	plain := parse("something plain")
+	plain := Parse("something plain")
 	plain.Stream = Stderr
 	if continues(&plain, next) {
 		t.Error("a line was joined to plain text")
 	}
-	flush := parse("flush left")
+	flush := Parse("flush left")
 	flush.Stream = Stderr
 	if continues(&first, flush) {
 		t.Error("a flush-left line was joined to a structured log")
@@ -145,7 +145,7 @@ func TestAPanicOpensATraceThatRunsUntilALineParses(t *testing.T) {
 	}
 	var logs []Log
 	for _, line := range lines {
-		l := parse(line)
+		l := Parse(line)
 		if n := len(logs); n > 0 && continues(&logs[n-1], l) {
 			logs[n-1].join(line)
 			continue
@@ -164,7 +164,7 @@ func TestAPanicOpensATraceThatRunsUntilALineParses(t *testing.T) {
 }
 
 func TestSourceFromFileAndLine(t *testing.T) {
-	l := parse(`{"level":"debug","message":"x","file":"a/b.go","line":7}`)
+	l := Parse(`{"level":"debug","message":"x","file":"a/b.go","line":7}`)
 	if l.Source != (Source{Path: "a/b.go", Line: 7}) {
 		t.Errorf("source = %+v", l.Source)
 	}
@@ -176,7 +176,7 @@ func TestSourceFromFileAndLine(t *testing.T) {
 // A key of the right name but the wrong shape stays a field rather than
 // being lost.
 func TestAKeyOfTheWrongShapeStaysAField(t *testing.T) {
-	l := parse(`{"msg":{"nested":true},"level":"info"}`)
+	l := Parse(`{"msg":{"nested":true},"level":"info"}`)
 	if l.Message != "" {
 		t.Errorf("message = %q, want none", l.Message)
 	}

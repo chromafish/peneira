@@ -95,10 +95,10 @@ type Log struct {
 	trace bool
 }
 
-// parse reads one line as far as it is understood. Formats are tried in
+// Parse reads one line as far as it is understood. Formats are tried in
 // order and the first that matches wins; plain text always matches, so no
 // line fails outright.
-func parse(line string) Log {
+func Parse(line string) Log {
 	if l, ok := parseJSON(line); ok {
 		return l
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"log/slog"
 	"path/filepath"
 	"sync"
 	"time"
@@ -352,18 +353,23 @@ func (a *App) applyPending() {
 
 // fail records an error for the status bar. Errors from jj are usually a bad
 // revset, which the user fixes by typing, so they belong in the chrome rather
-// than in a dialog.
+// than in a dialog. Every error passes here, so this is where each one
+// reaches the behaviour log; the status bar forgets it in seconds.
 func (a *App) fail(err error) {
 	if err != nil {
 		a.failure = err.Error()
 		a.statusAt = time.Now()
+		slog.Error(a.failure)
 	}
 }
 
+// note puts a message in the status bar, and in the log for the same reason
+// fail does.
 func (a *App) note(format string, args ...any) {
 	a.status = fmt.Sprintf(format, args...)
 	a.failure = ""
 	a.statusAt = time.Now()
+	slog.Info(a.status)
 }
 
 // reload re-evaluates the revset. When snapshot is set, jj is allowed to
@@ -392,6 +398,7 @@ func (a *App) reload(snapshot bool) {
 		}
 		vcs.BuildGraph(revs)
 		return func() {
+			slog.Info("revset evaluated", "revset", revset, "revisions", len(revs))
 			a.failure = ""
 			a.revs = revs
 			a.revSel = 0
@@ -443,6 +450,7 @@ func (a *App) loadFiles() {
 				a.fail(err)
 				return
 			}
+			slog.Info("revision selected", "change", rev.ChangeID, "files", len(files))
 			a.failure = ""
 			a.desc = desc
 			a.files = a.decorate(rev, files)

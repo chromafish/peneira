@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -53,6 +54,10 @@ type Run struct {
 	// joined to since Sync last looked.
 	last    [3]int
 	changed []int
+
+	// formats counts the logs by how far each was understood, for the
+	// behaviour log's account of the run.
+	formats [3]int
 }
 
 // State is a snapshot of a run's progress.
@@ -92,15 +97,19 @@ func (r *Run) run(ctx context.Context) {
 	defer close(r.done)
 
 	if len(r.Target.Build) > 0 {
-		if out, err := build(ctx, r.Target); err != nil {
+		slog.Info("build started", "target", r.Target.Name, "rev", r.Rev, "cmd", strings.Join(r.Target.Build, " "))
+		out, err := build(ctx, r.Target)
+		if err != nil {
 			if ctx.Err() != nil {
-				r.finish("stopped while building")
+				r.finish("stopped while building", false)
 				return
 			}
+			slog.Error("build exited", "target", r.Target.Name, "rev", r.Rev, "exit", exitCode(err))
 			r.report(out)
-			r.finish("build failed")
+			r.finish("build failed", false)
 			return
 		}
+		slog.Info("build exited", "target", r.Target.Name, "rev", r.Rev, "exit", 0)
 	}
 
 	cmd := exec.Command(r.Target.Run[0], r.Target.Run[1:]...)
@@ -115,22 +124,34 @@ func (r *Run) run(ctx context.Context) {
 	r.mu.Lock()
 	if r.stopped {
 		r.mu.Unlock()
-		r.finish("stopped before it started")
+		r.finish("stopped before it started", false)
 		return
 	}
 	if err := cmd.Start(); err != nil {
 		r.mu.Unlock()
-		r.finish("cannot start: " + err.Error())
+		r.finish("cannot start: "+err.Error(), true)
 		return
 	}
 	r.cmd, r.phase = cmd, Running
 	r.mu.Unlock()
+	slog.Info("run started", "target", r.Target.Name, "rev", r.Rev, "cmd", strings.Join(r.Target.Run, " "))
 	r.notify()
 
 	err := cmd.Wait()
 	out.flush()
 	errs.flush()
-	r.finish(r.outcome(err))
+	how, failed := r.outcome(err)
+	r.finish(how, failed)
+}
+
+// exitCode is what a command exited with, or -1 where it did not exit on
+// its own.
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
 }
 
 // build runs the build command against the working copy as it stands, and
@@ -162,37 +183,47 @@ func (r *Run) report(out []byte) {
 	r.mu.Unlock()
 }
 
-func (r *Run) finish(how string) {
+// finish records how the run ended and writes its account to the behaviour
+// log: how it ended, and how much of what it wrote was understood. A run
+// that failed of its own accord is an error; one that was stopped is not.
+func (r *Run) finish(how string, failed bool) {
 	r.mu.Lock()
 	r.phase, r.ended = Ended, how
+	formats := r.formats
 	r.mu.Unlock()
+	level := slog.LevelInfo
+	if failed {
+		level = slog.LevelError
+	}
+	slog.Log(context.Background(), level, "run exited", "target", r.Target.Name, "rev", r.Rev, "how", how,
+		"json", formats[JSON], "logfmt", formats[Logfmt], "plain", formats[Plain])
 	r.notify()
 }
 
-// outcome says how the process ended. A stop is reported as one rather than
-// as the signal that carried it, except where the process had to be killed,
-// which is worth knowing about a program.
-func (r *Run) outcome(err error) string {
+// outcome says how the process ended, and whether that counts as a failure.
+// A stop is reported as one rather than as the signal that carried it, except
+// where the process had to be killed, which is worth knowing about a program.
+func (r *Run) outcome(err error) (string, bool) {
 	r.mu.Lock()
 	stopped := r.stopped
 	r.mu.Unlock()
 	if err == nil {
-		return "exited 0"
+		return "exited 0", false
 	}
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) {
-		return err.Error()
+		return err.Error(), true
 	}
 	if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		switch {
 		case stopped && ws.Signal() == syscall.SIGKILL:
-			return "killed after ignoring a stop"
+			return "killed after ignoring a stop", false
 		case stopped:
-			return "stopped"
+			return "stopped", false
 		}
-		return "killed by " + ws.Signal().String()
+		return "killed by " + ws.Signal().String(), true
 	}
-	return strings.Replace(ee.Error(), "exit status", "exited", 1)
+	return strings.Replace(ee.Error(), "exit status", "exited", 1), true
 }
 
 // inGroup puts the command in a process group of its own, so that a program
@@ -274,7 +305,7 @@ func (r *Run) Sync(dst []Log) ([]Log, []int) {
 // log.
 func (r *Run) line(stream Stream, text string) {
 	text = strings.TrimSuffix(text, "\r")
-	l := parse(text)
+	l := Parse(text)
 	l.Stream = stream
 	r.mu.Lock()
 	l.At = time.Now()
@@ -284,6 +315,7 @@ func (r *Run) line(stream Stream, text string) {
 	} else {
 		r.logs = append(r.logs, l)
 		r.last[stream] = len(r.logs) - 1
+		r.formats[l.Format]++
 	}
 	r.mu.Unlock()
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -306,6 +307,7 @@ func (a *App) loadDiff() {
 			if doc.settle() {
 				a.rebuildRows()
 			}
+			doc.logParsed()
 			a.lightFile(a.fileSel)
 			if err := cmp.Or(serr, cerr); err != nil {
 				if stalled.Load() {
@@ -316,6 +318,29 @@ func (a *App) loadDiff() {
 			}
 		}
 	})
+}
+
+// logParsed sums the change up for the behaviour log once the whole diff is
+// in: counts, never contents.
+func (d *DiffDoc) logParsed() {
+	if !slog.Default().Enabled(context.Background(), slog.LevelInfo) {
+		return
+	}
+	files, hunks, added, removed, truncated := 0, 0, 0, 0, 0
+	for _, fd := range d.Files {
+		if fd.File == nil {
+			continue
+		}
+		files++
+		hunks += len(fd.File.Hunks)
+		a, r := fd.File.Counts()
+		added += a
+		removed += r
+		if fd.File.Truncated {
+			truncated++
+		}
+	}
+	slog.Info("diff parsed", "files", files, "hunks", hunks, "added", added, "removed", removed, "truncated", truncated)
 }
 
 // matchFile finds the parsed diff for a path. jj names a rename with both its
@@ -723,6 +748,7 @@ func (a *App) lightFile(i int) {
 			if gen != a.generation || a.diff != doc {
 				return
 			}
+			slog.Info("file selected", "path", fd.Path, "hunks", len(f.Hunks), "syntax", cmp.Or(highlight.Syntax(fd.Path), "none"))
 			fd.lines = splitLines(newSrc)
 			fd.old = splitLines(oldSrc)
 			fd.newHL, fd.oldHL = newHL, oldHL

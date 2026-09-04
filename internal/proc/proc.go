@@ -1,4 +1,8 @@
 // Package proc runs a command and hands back its output as it is written.
+//
+// Every command the repository is read through passes here, so this is
+// where each one is written to the behaviour log, with its arguments and how
+// it ended.
 package proc
 
 import (
@@ -6,8 +10,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -24,22 +32,12 @@ func Run(ctx context.Context, dir, bin string, args ...string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	ran(cmd, err)
+	if err != nil {
 		return nil, said(err, &stderr)
 	}
 	return stdout.Bytes(), nil
-}
-
-// Clean turns an exec failure into the message the command actually printed,
-// for the calls that did not capture its output.
-func Clean(err error) error {
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		if msg := strings.TrimSpace(string(ee.Stderr)); msg != "" {
-			return errors.New(msg)
-		}
-	}
-	return err
 }
 
 // said prefers what the command printed over the exit status it died with.
@@ -48,6 +46,34 @@ func said(err error, stderr *bytes.Buffer) error {
 		return errors.New(msg)
 	}
 	return err
+}
+
+// ran writes a finished command to the log. The line is assembled only when
+// it will be written, so a command run with the log off pays nothing for it.
+// A failure is a fact about the command and not yet about the program, so it
+// is written at the same level as a success, with the exit status to say so;
+// what it meant is logged where the error is handled.
+func ran(cmd *exec.Cmd, err error) {
+	if !slog.Default().Enabled(context.Background(), slog.LevelInfo) {
+		return
+	}
+	attrs := []any{"cmd", filepath.Base(cmd.Path), "args", strings.Join(cmd.Args[1:], " "), "dir", cmd.Dir}
+	switch state := cmd.ProcessState; {
+	case state == nil:
+		attrs = append(attrs, "err", err.Error())
+	case state.Exited():
+		attrs = append(attrs, "exit", state.ExitCode())
+	default:
+		attrs = append(attrs, "signal", signalOf(state))
+	}
+	slog.Info("command ran", attrs...)
+}
+
+func signalOf(state *os.ProcessState) string {
+	if ws, ok := state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return ws.Signal().String()
+	}
+	return state.String()
 }
 
 // Stream starts a command in dir and returns its standard output, which the
@@ -74,6 +100,7 @@ func Stream(ctx context.Context, dir, bin string, args ...string) (io.ReadCloser
 	}
 	cmd.WaitDelay = waitDelay
 	if err := cmd.Start(); err != nil {
+		ran(cmd, err)
 		return nil, err
 	}
 	return &output{out: out, cmd: cmd, stderr: &stderr}, nil
@@ -93,6 +120,7 @@ func (o *output) Read(b []byte) (int, error) { return o.out.Read(b) }
 func (o *output) Close() error {
 	o.out.Close()
 	err := o.cmd.Wait()
+	ran(o.cmd, err)
 	if err == nil {
 		return nil
 	}

@@ -3,4 +3,4 @@ name = "peneira"
 dir = "."
 build = ["make", "build"]
 run = ["./peneira"]
-env = { REVIEW_TRACE = "1" }
+env = { REVIEW_LOG = "1", REVIEW_LOG_LEVEL = "info" }

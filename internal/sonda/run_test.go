@@ -204,7 +204,7 @@ func TestSyncCorrectsWhatGrew(t *testing.T) {
 
 	// Handed the first log alone before the continuation arrived, the copy is
 	// told which log grew.
-	held := []Log{parse("level=info msg=start")}
+	held := []Log{Parse("level=info msg=start")}
 	r.mu.Lock()
 	r.changed = append(r.changed, 0)
 	r.mu.Unlock()

@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -212,6 +213,7 @@ func (a *App) startSonda() {
 	t := s.targets[s.target]
 	filter := s.currentFilter()
 	base, why := a.baselineRev()
+	slog.Info("target chosen", "target", t.Name, "baseline", base)
 	s.panes[paneBaseline].reset("BASELINE", base)
 	s.panes[paneReview].reset("REVIEW", "WORKING COPY")
 	s.panes[paneBaseline].built, s.panes[paneReview].built = filter, filter

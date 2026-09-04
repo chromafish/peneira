@@ -46,11 +46,9 @@ func Open(ctx context.Context, dir string) (*Repo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git not found in PATH: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, bin, "rev-parse", "--show-toplevel")
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	out, err := proc.Run(ctx, dir, bin, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return nil, fmt.Errorf("%s is not inside a git repository: %w", dir, proc.Clean(err))
+		return nil, fmt.Errorf("%s is not inside a git repository: %w", dir, err)
 	}
 	r := &Repo{root: strings.TrimSpace(string(out)), bin: bin}
 	r.version = r.readVersion(ctx)

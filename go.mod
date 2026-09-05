@@ -1,6 +1,6 @@
 module github.com/chromafish/peneira
 
-go 1.25
+go 1.27.1
 
 require (
 	gioui.org v0.10.2

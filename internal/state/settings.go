@@ -21,6 +21,9 @@ type Settings struct {
 	Theme string `json:"theme,omitempty"`
 	// Dark is which mode of the scheme was last in force.
 	Dark bool `json:"dark,omitempty"`
+	// NoWrap disables soft wrapping of long diff lines. Zero means wrapped:
+	// wrapping is on by default, and only turning it off is recorded.
+	NoWrap bool `json:"no_wrap,omitempty"`
 }
 
 // ThemesDir is where colour schemes are read from: base16 files, in the same

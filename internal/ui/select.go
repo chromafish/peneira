@@ -96,6 +96,37 @@ func (a *App) selectArea(gtx layout.Context, r image.Rectangle, row, gut int, ce
 	pointer.CursorText.Add(gtx.Ops)
 	stack.Pop()
 
+	// colAt maps a pointer position to a display column. Wrapped lines stack
+	// their visual lines, words preserved, so the visual line contributes
+	// its starting column as well as the column within it. An overlong
+	// token's bound spans the whole token while only its head is shown;
+	// clicking the ellipsis lands at the start of what it stands in for.
+	colAt := func(rowIdx, posX, visual int) int {
+		if cell.X <= 0 {
+			return 0
+		}
+		if !a.wrapping() {
+			return max(0, (posX-gut)/cell.X+a.diffX)
+		}
+		width := gtx.Constraints.Max.X
+		cols := max(1, (width-gut)/cell.X)
+		text := ""
+		if doc := a.diff; doc != nil && rowIdx >= 0 && rowIdx < len(doc.Rows) {
+			if r := doc.Row(rowIdx); r.Kind == rowLine {
+				text = r.Line.Text
+			}
+		}
+		bounds, _ := wordWrapBounds(text, cols)
+		if len(bounds) == 0 {
+			return 0
+		}
+		visual = clamp(visual, 0, len(bounds)-1)
+		s, e := bounds[visual][0], bounds[visual][1]
+		xCols := clamp((posX-gut)/cell.X, 0, max(0, e-s))
+		return max(0, s+xCols)
+	}
+	rowH := a.ui.CodeRow(gtx)
+
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
 			Target: tag,
@@ -108,10 +139,14 @@ func (a *App) selectArea(gtx layout.Context, r image.Rectangle, row, gut int, ce
 		if !ok {
 			continue
 		}
-		col := max(0, (int(pe.Position.X)-gut)/max(1, cell.X)+a.diffX)
 
 		switch pe.Kind {
 		case pointer.Press:
+			visual := 0
+			if a.wrapping() && rowH > 0 {
+				visual = max(0, int(pe.Position.Y)/rowH)
+			}
+			col := colAt(row, int(pe.Position.X), visual)
 			// The press that starts a selection also puts the cursor on the
 			// line.
 			if doc := a.diff; doc != nil && row < len(doc.Rows) {
@@ -129,11 +164,23 @@ func (a *App) selectArea(gtx layout.Context, r image.Rectangle, row, gut int, ce
 			// A drag keeps coming to the row it started on, so where the
 			// pointer has got to is worked out from that row's own position.
 			over := row
+			visual := 0
 			if top, ok := a.rowTops[row]; ok {
-				if at := a.rowAtY(top + int(pe.Position.Y)); at >= 0 {
+				winY := top + int(pe.Position.Y)
+				if at := a.rowAtY(winY); at >= 0 {
 					over = at
 				}
+				if a.wrapping() && rowH > 0 {
+					if overTop, ok := a.rowTops[over]; ok {
+						visual = max(0, (winY-overTop)/rowH)
+					} else {
+						visual = max(0, int(pe.Position.Y)/rowH)
+					}
+				}
+			} else if a.wrapping() && rowH > 0 {
+				visual = max(0, int(pe.Position.Y)/rowH)
 			}
+			col := colAt(over, int(pe.Position.X), visual)
 			a.sel.Head = Spot{Row: over, Col: col}
 			reef.Redraw(gtx)
 		case pointer.Release, pointer.Cancel:

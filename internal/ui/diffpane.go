@@ -147,7 +147,7 @@ func (a *App) layoutDiffBody(gtx layout.Context) {
 	}
 
 	a.diffList.Layout(gtx, len(doc.Rows), func(gtx layout.Context, i int) layout.Dimensions {
-		h := a.rowHeight(gtx, doc.Row(i), size.X, row)
+		h := a.rowHeight(gtx, doc, i, size.X, row)
 		a.nextRows[i] = h
 		gtx.Constraints = layout.Exact(image.Pt(size.X, h))
 		a.diffRow(gtx, doc, i, cell, row)
@@ -244,7 +244,11 @@ func (a *App) rowAtY(y int) int {
 }
 
 // horizontalScroll lets a trackpad pan the diff sideways without a scrollbar.
+// There is nothing to pan while lines are wrapped.
 func (a *App) horizontalScroll(gtx layout.Context, size image.Point) {
+	if a.wrapping() {
+		return
+	}
 	stack := clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, a)
 	pointer.CursorText.Add(gtx.Ops)
@@ -267,7 +271,11 @@ func (a *App) horizontalScroll(gtx layout.Context, size image.Point) {
 // maxScrollX is how far right the code can be taken: far enough to bring the
 // end of the widest line into view, and no further. Scrolling past the last
 // character leaves a blank pane with nothing to say which way is back.
+// Wrapped lines all fit, so the range is nothing.
 func (a *App) maxScrollX(gtx layout.Context, size image.Point) int {
+	if a.wrapping() {
+		return 0
+	}
 	doc := a.diff
 	if doc == nil {
 		return 0
@@ -300,7 +308,162 @@ func numberCols(oldDig, newDig int) int {
 	return n
 }
 
-func (a *App) rowHeight(gtx layout.Context, r Row, width, row int) int {
+// wrapping reports whether long diff lines are soft wrapped onto several
+// visual lines. It is on by default: noWrap is what is stored, so the zero
+// value of an App already wraps.
+func (a *App) wrapping() bool { return !a.noWrap }
+
+// toggleWrap turns soft wrapping on and off. Turning it on drops the
+// horizontal scroll, which has nothing to say once every line fits.
+func (a *App) toggleWrap() {
+	a.noWrap = !a.noWrap
+	if a.wrapping() {
+		a.diffX = 0
+	}
+	a.diffList.Position.Offset = 0
+	a.pairList.Position.Offset = 0
+	a.settings.NoWrap = a.noWrap
+	a.saveSettings()
+	if a.wrapping() {
+		a.note("wrap on")
+	} else {
+		a.note("wrap off")
+	}
+}
+
+// wrapCols is how many character cells of code fit in a column of the given
+// pixel width after its gutter. At least one, so a narrow window wraps every
+// character rather than disappearing the line.
+func (a *App) wrapCols(gtx layout.Context, width, gutter int) int {
+	cell := a.ui.Cell(gtx, reef.SizeCode, false)
+	if cell.X <= 0 {
+		return 1
+	}
+	return max(1, (width-gutter)/cell.X)
+}
+
+// expandIsSpace reports, for each display cell of text, whether it is a
+// breakable space. Tabs advance to the next tab stop and expand into spaces,
+// which is what makes them breakable too; every other rune takes one cell.
+func expandIsSpace(text string) []bool {
+	out := make([]bool, 0, len(text)+8)
+	col := 0
+	for _, r := range text {
+		if r == '\t' {
+			for n := tabWidth - col%tabWidth; n > 0; n-- {
+				out = append(out, true)
+				col++
+			}
+			continue
+		}
+		out = append(out, r == ' ')
+		col++
+	}
+	return out
+}
+
+// wordWrapBounds breaks text into visual lines of at most cols display cells,
+// preserving words: breaks fall after spaces, never inside a word. Each bound
+// is a half-open range of display columns, and the bounds cover the whole
+// line contiguously, so selection can intersect them the way it does fixed
+// strides.
+//
+// A token longer than the column — leading indent included — cannot be
+// preserved and fit. It takes one visual line of its own, shown truncated
+// with an ellipsis; truncated reports which lines those are. The bound still
+// spans the whole token, so copying keeps what the ellipsis stands in for.
+func wordWrapBounds(text string, cols int) (bounds [][2]int, truncated []bool) {
+	if cols <= 0 {
+		cols = 1
+	}
+	isSpace := expandIsSpace(text)
+	n := len(isSpace)
+	if n == 0 {
+		return [][2]int{{0, 0}}, []bool{false}
+	}
+	// Words are maximal non-space runs; a line of only spaces has none and
+	// stays one visual line whatever its length — there is nothing to show
+	// on a second one.
+	type span struct{ s, e int }
+	var words []span
+	for i := 0; i < n; {
+		if isSpace[i] {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < n && !isSpace[j] {
+			j++
+		}
+		words = append(words, span{i, j})
+		i = j
+	}
+	if len(words) == 0 {
+		return [][2]int{{0, n}}, []bool{false}
+	}
+	// Tokens attach the spaces around a word to it: leading indent to the
+	// first word, inter-word runs to the word before them, trailing spaces
+	// to the last. That keeps indent with the word it indents instead of
+	// stranding it alone on a visual line.
+	type token struct{ s, e int }
+	tokens := make([]token, 0, len(words))
+	for wi, w := range words {
+		s := w.s
+		if wi == 0 {
+			s = 0
+		}
+		e := w.e
+		for e < n && isSpace[e] {
+			e++
+		}
+		tokens = append(tokens, token{s, e})
+	}
+	emit := func(s, e int, trunc bool) {
+		bounds = append(bounds, [2]int{s, e})
+		truncated = append(truncated, trunc)
+	}
+	curStart, curLen := tokens[0].s, 0
+	flush := func() {
+		if curLen > 0 {
+			emit(curStart, curStart+curLen, false)
+			curLen = 0
+		}
+	}
+	for _, t := range tokens {
+		l := t.e - t.s
+		if l > cols {
+			flush()
+			emit(t.s, t.e, true)
+			curStart = t.e
+			continue
+		}
+		if curLen == 0 {
+			curStart, curLen = t.s, l
+			continue
+		}
+		if curLen+l <= cols {
+			curLen += l
+			continue
+		}
+		flush()
+		curStart, curLen = t.s, l
+	}
+	flush()
+	if len(bounds) == 0 {
+		return [][2]int{{0, n}}, []bool{false}
+	}
+	return bounds, truncated
+}
+
+// wrappedLineCount is how many visual lines text takes at cols cells per
+// line, words preserved. An empty line still takes one.
+func wrappedLineCount(text string, cols int) int {
+	bounds, _ := wordWrapBounds(text, cols)
+	return max(1, len(bounds))
+}
+
+func (a *App) rowHeight(gtx layout.Context, doc *DiffDoc, i int, width, row int) int {
+	r := doc.Row(i)
 	switch r.Kind {
 	case rowComment:
 		return a.commentHeight(gtx, r.Comment.Body, width, row)
@@ -310,6 +473,14 @@ func (a *App) rowHeight(gtx layout.Context, r Row, width, row int) int {
 		return gtx.Dp(reef.GapRow) + gtx.Dp(reef.Sp4)
 	case rowGap:
 		return gtx.Dp(reef.GapRow)
+	case rowLine:
+		if a.wrapping() {
+			oldDig, newDig := doc.digitsAt(i)
+			gut := a.gutterWidth(gtx, oldDig, newDig)
+			cols := a.wrapCols(gtx, width, gut)
+			return wrappedLineCount(r.Line.Text, cols) * row
+		}
+		return row
 	default:
 		return row
 	}
@@ -423,9 +594,26 @@ func (a *App) diffRow(gtx layout.Context, doc *DiffDoc, i int, cell image.Point,
 	}
 	reef.VLine(gtx, gut-gtx.Dp(reef.Sp3), size.Y, margin)
 
-	// The code itself, clipped to the area right of the gutter and shifted by
-	// the horizontal scroll.
+	// The code itself, clipped to the area right of the gutter. Unwrapped it
+	// is shifted by the horizontal scroll; wrapped every line fits, so there
+	// is nothing to scroll to.
 	if size.X <= gut {
+		return
+	}
+	if a.wrapping() {
+		cols := a.wrapCols(gtx, size.X, gut)
+		area := clip.Rect(image.Rect(gut, 0, size.X, size.Y)).Push(gtx.Ops)
+		fill(gtx, image.Pt(gut, 0), image.Pt(size.X-gut, size.Y), func(gtx layout.Context) {
+			a.drawCodeWrapped(gtx, r, cell, row, i, hot, cols)
+		})
+		area.Pop()
+
+		if l.NoNewline {
+			lines := wrappedLineCount(r.Line.Text, cols)
+			off := op.Offset(image.Pt(0, (lines-1)*row)).Push(gtx.Ops)
+			a.codeTextRight(gtx, size.X-gtx.Dp(reef.Sp3), row, ui.P.Faint, "no newline")
+			off.Pop()
+		}
 		return
 	}
 	area := clip.Rect(image.Rect(gut, 0, size.X, size.Y)).Push(gtx.Ops)
@@ -630,6 +818,147 @@ func (a *App) drawCode(gtx layout.Context, r Row, cell image.Point, row, index i
 	}
 }
 
+// drawCodeWrapped paints one line of source wrapped onto several visual
+// lines, words preserved: breaks fall after spaces, never inside a word. It
+// carries the same selection tint, changed background and syntax colours as
+// drawCode down each visual line the code takes.
+//
+// A token longer than the column takes one visual line of its own, shown
+// truncated with an ellipsis; the bound still spans the whole token, so
+// copying keeps what the ellipsis stands in for.
+func (a *App) drawCodeWrapped(gtx layout.Context, r Row, cell image.Point, rowH, index int, hotColor reef.ColorNRGBA, cols int) {
+	ui := a.ui
+	cells := buildCells(r.Line.Text, r.Spans, r.Line.Segments)
+	n := len(cells.runes)
+	bounds, truncated := wordWrapBounds(r.Line.Text, cols)
+	if len(bounds) == 0 {
+		return
+	}
+
+	var sc0, sc1 int
+	selOk := false
+	if c0, c1, ok := a.sel.Cols(index); ok {
+		sc0, sc1, selOk = c0, min(c1, n), true
+	}
+	// anyHot reports whether any cell in [s,e) carries the changed
+	// background, for painting it behind the ellipsis that stands in for
+	// them.
+	anyHot := func(s, e int) bool {
+		s = clamp(s, 0, n)
+		e = clamp(e, 0, n)
+		for i := s; i < e; i++ {
+			if cells.hot[i] {
+				return true
+			}
+		}
+		return false
+	}
+	// drawRuns paints cells [s,e) in runs of one syntax colour at x offset
+	// ox, in the current visual line already offset to its y.
+	drawRuns := func(s, e, ox int) {
+		for i := s; i < e; {
+			class := cells.class[i]
+			j := i
+			for j < e && cells.class[j] == class {
+				j++
+			}
+			text := strings.TrimRight(string(cells.runes[i:j]), " ")
+			if text != "" {
+				style := font.Regular
+				if highlight.Class(class) == highlight.Comment {
+					style = font.Italic
+				}
+				a.codeStyled(gtx, ox+(i-s)*cell.X, rowH, gtx.Constraints.Max.X, style, a.syntax(class), text)
+			}
+			i = j
+		}
+	}
+	// ellipsisClass is the syntax colour the ellipsis takes: the colour of
+	// the last cell it stands beside, so it reads as part of the token.
+	ellipsisClass := func(s, shown int) uint8 {
+		if shown > 0 && s+shown-1 < n {
+			return cells.class[s+shown-1]
+		}
+		if s < n {
+			return cells.class[s]
+		}
+		return uint8(highlight.Plain)
+	}
+
+	for k, be := range bounds {
+		s, e := be[0], be[1]
+		s = clamp(s, 0, n)
+		e = clamp(e, 0, n)
+		if s > e {
+			s = e
+		}
+		off := op.Offset(image.Pt(0, k*rowH)).Push(gtx.Ops)
+
+		if !truncated[k] {
+			if selOk && sc1 > sc0 {
+				if a0, b0 := max(sc0, s), min(sc1, e); b0 > a0 {
+					reef.FillRect(gtx, image.Rect((a0-s)*cell.X, 0, (b0-s)*cell.X, rowH), ui.P.TextSel)
+				}
+			}
+			for i := s; i < e; {
+				if !cells.hot[i] {
+					i++
+					continue
+				}
+				j := i
+				for j < e && cells.hot[j] {
+					j++
+				}
+				reef.FillRect(gtx, image.Rect((i-s)*cell.X, 0, (j-s)*cell.X, rowH), hotColor)
+				i = j
+			}
+			drawRuns(s, e, 0)
+			off.Pop()
+			continue
+		}
+		// An overlong token: the first cols-1 cells, then an ellipsis in
+		// the last cell. The bound spans the whole token; only the head is
+		// shown.
+		shown := max(0, min(cols-1, e-s))
+		dispEnd := s + shown
+		if selOk && sc1 > sc0 {
+			if a0, b0 := max(sc0, s), min(sc1, dispEnd); b0 > a0 {
+				reef.FillRect(gtx, image.Rect((a0-s)*cell.X, 0, (b0-s)*cell.X, rowH), ui.P.TextSel)
+			}
+			// The ellipsis stands in for the hidden tail: it takes the
+			// selection tint when the selection reaches past what is shown.
+			if sc1 > s+shown && sc0 < e {
+				reef.FillRect(gtx, image.Rect(shown*cell.X, 0, cols*cell.X, rowH), ui.P.TextSel)
+			}
+		}
+		for i := s; i < dispEnd; {
+			if !cells.hot[i] {
+				i++
+				continue
+			}
+			j := i
+			for j < dispEnd && cells.hot[j] {
+				j++
+			}
+			reef.FillRect(gtx, image.Rect((i-s)*cell.X, 0, (j-s)*cell.X, rowH), hotColor)
+			i = j
+		}
+		if anyHot(s+shown, e) {
+			reef.FillRect(gtx, image.Rect(shown*cell.X, 0, cols*cell.X, rowH), hotColor)
+		}
+		drawRuns(s, dispEnd, 0)
+		if cols >= 1 {
+			class := ellipsisClass(s, shown)
+			style := font.Regular
+			if highlight.Class(class) == highlight.Comment {
+				style = font.Italic
+			}
+			a.codeStyled(gtx, shown*cell.X, rowH, gtx.Constraints.Max.X, style, a.syntax(class), "…")
+		}
+		off.Pop()
+	}
+}
+
 // syntaxRole maps the highlighter's token classes onto the design system's
 // syntax roles. The two lists are in the same order, but writing the mapping
 // out is what stops one of them being extended without the other.
@@ -724,12 +1053,39 @@ func num(n int) string {
 }
 
 // pairHeight is how tall a two-column line is. One that runs across both
-// columns takes whatever that row takes; a pair of code lines takes one.
+// columns takes whatever that row takes; a pair of code lines takes the
+// taller of the two sides once wrapping is on, so the columns stay aligned.
 func (a *App) pairHeight(gtx layout.Context, doc *DiffDoc, p Pair, width, row int) int {
 	if p.Span >= 0 {
-		return a.rowHeight(gtx, doc.Row(p.Span), width, row)
+		return a.rowHeight(gtx, doc, p.Span, width, row)
 	}
-	return row
+	if !a.wrapping() {
+		return row
+	}
+	cell := a.ui.Cell(gtx, reef.SizeCode, false)
+	if cell.X <= 0 {
+		return row
+	}
+	halfW := width / 2
+	rightW := width - halfW - 1
+	height := func(idx int, colW int, left bool) int {
+		if idx < 0 {
+			return row
+		}
+		r := doc.Row(idx)
+		if r.Kind != rowLine {
+			return row
+		}
+		oldDig, newDig := doc.digitsAt(idx)
+		digits := newDig
+		if left {
+			digits = oldDig
+		}
+		gutter := gtx.Dp(reef.Sp3) + (digits+1)*cell.X
+		cols := max(1, (colW-gutter)/cell.X)
+		return wrappedLineCount(r.Line.Text, cols) * row
+	}
+	return max(height(p.Left, halfW, true), height(p.Right, rightW, false))
 }
 
 // pairRow draws one line of the side by side view.
@@ -764,7 +1120,7 @@ func (a *App) pairRow(gtx layout.Context, doc *DiffDoc, p Pair, cell image.Point
 		if w <= 0 {
 			return
 		}
-		fill(gtx, image.Pt(x, 0), image.Pt(w, row), func(gtx layout.Context) {
+		fill(gtx, image.Pt(x, 0), image.Pt(w, size.Y), func(gtx layout.Context) {
 			if idx < 0 {
 				reef.Fill(gtx, gtx.Constraints.Max, ui.P.BgAlt)
 			} else {
@@ -774,7 +1130,7 @@ func (a *App) pairRow(gtx layout.Context, doc *DiffDoc, p Pair, cell image.Point
 	}
 	draw(0, half, p.Left, true)
 	draw(half+1, size.X-half-1, p.Right, false)
-	reef.VLine(gtx, half, row, ui.P.Rule)
+	reef.VLine(gtx, half, size.Y, ui.P.Rule)
 }
 
 // halfRow draws one side of the side by side view: the same content as a
@@ -821,6 +1177,24 @@ func (a *App) halfRow(gtx layout.Context, doc *DiffDoc, i int, cell image.Point,
 	a.codeTextRight(gtx, gtx.Dp(reef.Sp3)+digits*cell.X, row, ui.P.Faint, num(n))
 
 	if size.X <= half {
+		return
+	}
+	if a.wrapping() {
+		cols := max(1, (size.X-half)/cell.X)
+		area := clip.Rect(image.Rect(half, 0, size.X, size.Y)).Push(gtx.Ops)
+		fill(gtx, image.Pt(half, 0), image.Pt(size.X-half, size.Y), func(gtx layout.Context) {
+			a.drawCodeWrapped(gtx, r, cell, row, i, hot, cols)
+		})
+		area.Pop()
+
+		// The same two areas a unified row carries, over this column alone: the
+		// number gutter starts a note, the code takes a selection.
+		a.hoverable(gtx, image.Rect(0, 0, half, size.Y), diffTag{row: i, gutter: true}, i, func() {
+			doc.Cursor = i
+			a.focus = PaneDiff
+			a.after(a.startComment)
+		})
+		a.selectArea(gtx, image.Rect(half, 0, size.X, size.Y), i, half, cell)
 		return
 	}
 	area := clip.Rect(image.Rect(half, 0, size.X, size.Y)).Push(gtx.Ops)
@@ -891,7 +1265,13 @@ func (a *App) diffControls(gtx layout.Context) {
 	if a.sideBySide {
 		label, c = "SPLIT", ui.P.Action
 	}
-	a.controlRight(gtx, rightX, size.Y, tagSplit, label+"  \\", c, a.toggleSplit)
+	rightX -= a.controlRight(gtx, rightX, size.Y, tagSplit, label+"  \\", c, a.toggleSplit) + gtx.Dp(reef.Sp3)
+
+	wrapLabel, wc := "WRAP  W", ui.P.Action
+	if a.noWrap {
+		wrapLabel, wc = "WRAP  W", ui.P.Muted
+	}
+	a.controlRight(gtx, rightX, size.Y, tagWrap, wrapLabel, wc, a.toggleWrap)
 }
 
 // toggleSplit swaps the unified and two-column views. The row position carries

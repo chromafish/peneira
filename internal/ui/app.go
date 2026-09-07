@@ -125,6 +125,7 @@ type App struct {
 	pairList   layout.List // and by two-column line, for the side by side view
 	diffX      int         // horizontal scroll, in character cells
 	sideBySide bool
+	noWrap     bool // soft wrapping off; zero means wrapped, which is the default
 	draft      *draft
 	help       bool
 	hoverRow   int // diff row under the pointer, -1 when none
@@ -205,6 +206,7 @@ func newApp(repo vcs.Repo, dir string, store *state.Store, revset string) *App {
 		pinFile:  -1,
 	}
 	a.applySettings()
+	a.noWrap = a.settings.NoWrap
 	if repo != nil {
 		a.repoName = filepath.Base(repo.Root())
 		a.recent = state.RememberRecent(repo.Root())

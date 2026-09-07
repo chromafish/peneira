@@ -502,6 +502,8 @@ func (a *App) command(gtx layout.Context, ke key.Event, editing bool) {
 		}
 	case "\\":
 		a.toggleSplit()
+	case "W":
+		a.toggleWrap()
 	}
 }
 
@@ -558,6 +560,7 @@ var helpSheet = [][2]string{
 	{"SHIFT-N → CLEAR ALL", "throw away every note on the change"},
 	{"Y", "copy path"},
 	{"\\", "side by side"},
+	{"W", "wrap long lines"},
 	{"DRAG / SHIFT-J K", "select code"},
 	{"CMD-C", "copy the selected code"},
 	{"E", "expand the unchanged lines the diff left out"},

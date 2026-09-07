@@ -41,6 +41,7 @@ type tag string
 
 const (
 	tagSplit      tag = "split"
+	tagWrap       tag = "wrap"
 	tagHelp       tag = "help"
 	tagNotes      tag = "notes"
 	tagCopy       tag = "copy"

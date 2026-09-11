@@ -1,0 +1,71 @@
+= Local Config
+:revdate: 2026-09-11
+:toc:
+
+== Context
+
+We need to persist user state: preferences, recent repositories, etc.
+
+== Scope
+
+* Defining where user-local configuration lives and how it is read and written
+* Establishing the file format and lifecycle for local config files
+
+== Abstractions
+
+=== ConfigDir
+
+The single directory for all user-local files, resolved via `os.UserConfigDir` plus `peneira` (`internal/state/dir.go:18` `dir()`). Created on first access.
+
+=== ConfigFile
+
+One JSON file in `ConfigDir`, named per concern (`settings.json`, `recent.json`). Read with `readJSON` `internal/state/dir.go:54`, written atomically with `writeJSON` `internal/state/dir.go:34` via temp file plus rename.
+
+== Mechanics
+
+=== Location
+
+`dir()` `internal/state/dir.go:18` returns `UserConfigDir/peneira` (`~/Library/Application Support/peneira` on macOS, `~/.config/peneira` on Linux). All local config stays there. No repository-local overrides. Cache data (`UserCacheDir/peneira/...` like sonda `WorkspaceDir` `internal/sonda/workspace.go:18`) stays separate.
+
+=== File per concern
+
+Each concern owns one file, not one monolithic blob:
+
+* `settings.json` — preferences (`internal/state/settings.go:12` `Settings`: `font_family`, `font_size`, `theme`, `dark`, `no_wrap`)
+* `recent.json` — recently opened repositories (`internal/state/recent.go:10`)
+* future files (e.g. `lsp.json`) follow same shape — new file, not a new field in `settings.json`
+
+This keeps atomic writes small and avoids merge conflicts across concerns.
+
+=== Read and write
+
+Reads use `readJSON(name, v)` `internal/state/dir.go:54`: missing file returns false, caller uses zero value. Writes use `writeJSON(name, v)` `internal/state/dir.go:34`: `json.MarshalIndent` to `<name>.tmp` then `os.Rename` over `<name>`. No manual changelog; VCS of the spec is the history. Writes are triggered explicitly by the feature that owns the file (preference change, recent update), not on a timer.
+
+=== Lifecycle
+
+Load at startup (`LoadSettings` `internal/state/settings.go:42`, `LoadRecent` `internal/state/recent.go:25`). Keep in memory, persist on change. Corrupt JSON is treated as missing — defaults, no crash. Directory creation is `MkdirAll` `internal/state/dir.go:24` on first `dir()` call.
+
+== Data Model
+
+`UserConfigDir/peneira/settings.json` (existing):
+
+[source,json]
+----
+{
+  "font_family": "Plex Mono",
+  "font_size": 13,
+  "theme": "solarized-dark",
+  "dark": true,
+  "no_wrap": false
+}
+----
+
+`UserConfigDir/peneira/recent.json`:
+
+[source,json]
+----
+[
+  { "path": "/Users/you/src/peneira", "last_used": "2026-09-11T10:00:00Z" }
+]
+----
+

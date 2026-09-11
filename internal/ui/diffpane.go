@@ -27,11 +27,58 @@ const tabWidth = 4
 // gutter that carries the comment affordance.
 const actionCols = 1
 
+// prettyFocused reports whether the file the reader is focused on is a doc
+// being shown in pretty mode. When that is the case the CHANGE/COMMIT/AUTHOR
+// meta header is hidden so the pretty-rendered document is the focus.
+func (a *App) prettyFocused() bool {
+	doc := a.diff
+	if doc == nil || len(doc.Files) == 0 {
+		return false
+	}
+	isPretty := func(idx int) bool {
+		if idx < 0 || idx >= len(doc.Files) {
+			return false
+		}
+		fd := doc.Files[idx]
+		return fd != nil && fd.IsDoc && fd.PrettyOn && fd.Pretty != nil && len(fd.Pretty.Blocks) > 0
+	}
+	if isPretty(a.fileSel) {
+		return true
+	}
+	if doc.Cursor >= 0 && doc.Cursor < len(doc.Rows) {
+		if idx := doc.FileOf(doc.Cursor); isPretty(idx) {
+			return true
+		}
+	}
+	if first := a.diffList.Position.First; first >= 0 && first < len(doc.Rows) {
+		if idx := doc.FileOf(first); isPretty(idx) {
+			return true
+		}
+	}
+	if a.sideBySide {
+		if first := a.pairList.Position.First; first >= 0 {
+			pairs := doc.pairs()
+			if first < len(pairs) {
+				row := rowOfPair(pairs[first])
+				if row >= 0 && row < len(doc.Rows) {
+					if idx := doc.FileOf(row); isPretty(idx) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 // layoutDiff draws the title block describing what is being reviewed, and the
 // diff itself below it.
 func (a *App) layoutDiff(gtx layout.Context) {
 	size := gtx.Constraints.Max
-	blockH := a.layoutTitleBlock(gtx)
+	blockH := 0
+	if !a.prettyFocused() {
+		blockH = a.layoutTitleBlock(gtx)
+	}
 	a.diffBodyY = a.bodyTop + a.panelHeadH + 1 + blockH
 
 	if size.Y <= blockH {
@@ -473,6 +520,8 @@ func (a *App) rowHeight(gtx layout.Context, doc *DiffDoc, i int, width, row int)
 		return gtx.Dp(reef.GapRow) + gtx.Dp(reef.Sp4)
 	case rowGap:
 		return gtx.Dp(reef.GapRow)
+	case rowPretty:
+		return a.prettyHeight(gtx, doc, i, width, row)
 	case rowLine:
 		if a.wrapping() {
 			oldDig, newDig := doc.digitsAt(i)
@@ -506,6 +555,10 @@ func (a *App) diffRow(gtx layout.Context, doc *DiffDoc, i int, cell image.Point,
 		a.noteRow(gtx, doc, i, row, cursor)
 		return
 	case rowHunk:
+		// Hide hunk headers in pretty mode: the overlay replaces them.
+		if fd := doc.FileAt(i); fd != nil && fd.IsDoc && fd.PrettyOn && fd.Pretty != nil {
+			return
+		}
 		// A hunk header is a section rule: groups in this system are separated
 		// by a line, never by a gap.
 		reef.Fill(gtx, size, ui.P.HunkBg)
@@ -514,6 +567,9 @@ func (a *App) diffRow(gtx layout.Context, doc *DiffDoc, i int, cell image.Point,
 		if cursor {
 			reef.Edge(gtx, size.Y, ui.P.Focus)
 		}
+		return
+	case rowPretty:
+		a.drawPretty(gtx, doc, i, cell, row)
 		return
 	case rowComment:
 		a.commentRow(gtx, r.Comment, cursor)
@@ -670,6 +726,21 @@ func (a *App) fileHeadRow(gtx layout.Context, doc *DiffDoc, i int, cursor bool) 
 	x += boxW + gtx.Dp(reef.Sp3)
 
 	rightX := size.X - gtx.Dp(reef.PadInline)
+	// Pretty toggle for doc files, beside WHOLE FILE.
+	if fd.IsDoc {
+		label, col := "RAW", ui.P.Muted
+		if fd.PrettyOn {
+			label, col = "PRETTY", ui.P.Action
+		}
+		// When pretty doc not yet rendered, show muted even when on.
+		if fd.PrettyOn && fd.Pretty == nil {
+			col = ui.P.Muted
+		}
+		rightX -= a.controlRight(gtx, rightX, size.Y, prettyTag{idx}, label+"  P", col, func() {
+			doc.Cursor = i
+			a.after(func() { a.togglePretty(idx) })
+		}) + gtx.Dp(reef.Sp3)
+	}
 	// The way to see the rest of the file sits on the file, not in a menu.
 	if fd.Collapsed() {
 		rightX -= a.controlRight(gtx, rightX, size.Y, wholeTag{idx}, "WHOLE FILE  ⇧E", ui.P.Muted, func() {
@@ -770,6 +841,7 @@ type gapTag struct {
 	all bool
 }
 type gapExpandTag struct{ row int }
+type prettyTag struct{ file int }
 
 // drawCode paints one line of source: the changed runs behind it, then the
 // text in runs of a single syntax colour.
@@ -1098,6 +1170,9 @@ func (a *App) pairRow(gtx layout.Context, doc *DiffDoc, p Pair, cell image.Point
 		cursor := p.Span == doc.Cursor && a.focus == PaneDiff
 		switch r.Kind {
 		case rowHunk:
+			if fd := doc.FileAt(p.Span); fd != nil && fd.IsDoc && fd.PrettyOn && fd.Pretty != nil {
+				return
+			}
 			reef.Fill(gtx, size, ui.P.HunkBg)
 			a.codeText(gtx, gtx.Dp(reef.PadInline), row, size.X, font.Normal, ui.P.HunkFg, r.Text)
 			reef.HLine(gtx, size.X, 0, ui.P.Rule)
@@ -1107,6 +1182,8 @@ func (a *App) pairRow(gtx layout.Context, doc *DiffDoc, p Pair, cell image.Point
 			a.gapRow(gtx, doc, p.Span, row, cursor)
 		case rowNote:
 			a.noteRow(gtx, doc, p.Span, row, cursor)
+		case rowPretty:
+			a.drawPretty(gtx, doc, p.Span, cell, row)
 		case rowComment:
 			a.commentRow(gtx, r.Comment, cursor)
 		case rowDraft:

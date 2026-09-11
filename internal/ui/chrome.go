@@ -485,6 +485,14 @@ func (a *App) command(gtx layout.Context, ke key.Event, editing bool) {
 			a.jumpComment(1)
 		}
 	case "P":
+		if a.diff != nil && a.diff.Cursor >= 0 && a.diff.Cursor < len(a.diff.Rows) {
+			if fd := a.diff.FileAt(a.diff.Cursor); fd != nil && fd.IsDoc {
+				if idx := a.diff.FileOf(a.diff.Cursor); idx >= 0 {
+					a.togglePretty(idx)
+					break
+				}
+			}
+		}
 		a.jumpComment(-1)
 	case "Y":
 		a.copyPath(gtx)

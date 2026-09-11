@@ -30,6 +30,7 @@ const (
 	rowNote
 	rowFile
 	rowGap
+	rowPretty
 )
 
 // Row is one line of the diff pane. File headings, diff lines, hunk headers,
@@ -48,6 +49,7 @@ type Row struct {
 	Hunk    int
 	Noted   bool // a note covers this line, so the margin says so
 	Gap     Gap
+	Pretty  *PrettyBlock // set for rowPretty
 }
 
 // rowRef is a row's place in the change: which file it belongs to, and where
@@ -104,6 +106,10 @@ type FileDoc struct {
 	newWide int
 	oldDig  int // and how many columns each side takes to print
 	newDig  int
+
+	IsDoc    bool
+	PrettyOn bool
+	Pretty   *PrettyDoc
 }
 
 // DiffDoc is the change as the diff pane reads it. Its Files are the manifest
@@ -205,8 +211,10 @@ const diffStall = 30 * time.Second
 // of it is still being written.
 //
 // The per-file work that needs the file's own text — full-file lexing, and the
-// lines behind a gap — is still done when a file is reached rather than up
-// front.
+// lines behind a gap — is still done when a source file is reached. Documents
+// are the exception: their full text is what the pretty view is made from, so
+// they are read as soon as their diff arrives and are already rendered by the
+// time scrolling reaches them.
 func (a *App) loadDiff() {
 	a.supersede()
 	gen := a.generation
@@ -269,9 +277,7 @@ func (a *App) loadDiff() {
 				for i := range ready {
 					if j := doc.attach(&ready[i]); j >= 0 {
 						a.rebuildFileWith(j, byPath[doc.Files[j].Path])
-						if j == a.fileSel {
-							a.lightFile(j)
-						}
+						a.lightAttachedFile(j)
 					}
 				}
 			})
@@ -299,6 +305,7 @@ func (a *App) loadDiff() {
 			for i := range rest {
 				if j := doc.attach(&rest[i]); j >= 0 {
 					a.rebuildFileWith(j, byPath[doc.Files[j].Path])
+					a.lightAttachedFile(j)
 				}
 			}
 			// Only a file the diff never mentioned is left to lay out, which
@@ -429,6 +436,8 @@ func buildDoc(files []FileRow, parsed []diffparse.File) *DiffDoc {
 	doc := &DiffDoc{Digits: 1, index: make(map[string]int, len(files))}
 	for i, fc := range files {
 		fd := &FileDoc{Path: fc.Path, File: matchFile(parsed, fc.Path), waiting: parsed == nil}
+		fd.IsDoc = IsDoc(fc.Path)
+		fd.PrettyOn = fd.IsDoc
 		buildFile(fd, i)
 		doc.Files = append(doc.Files, fd)
 		if _, seen := doc.index[fc.Path]; !seen {
@@ -598,6 +607,25 @@ func buildFile(fd *FileDoc, index int) {
 	row(Row{Kind: rowFile})
 
 	fd.Note = fileNote(fd)
+	// Binary/truncated files still show the note path; pretty rendering applies
+	// only with text content.
+	canPretty := fd.IsDoc && fd.PrettyOn && fd.Pretty != nil && len(fd.Pretty.Blocks) > 0 && fd.Note == "" && !fd.waiting && f != nil && !f.IsBinary && !f.Truncated
+	if canPretty {
+		buildPretty(fd, row, &cols)
+		fd.base, fd.MaxCols = base, cols
+		return
+	}
+	// A document defaults to its rendered form. While its full text is being
+	// fetched, do not briefly expose the raw hunk layout that the rendered rows
+	// will replace — that made scrolling across a file boundary visibly jump.
+	// Once a read has completed, a missing Pretty value means parsing failed and
+	// the raw diff remains the useful fallback promised by the spec.
+	pendingPretty := fd.IsDoc && fd.PrettyOn && fd.Pretty == nil && !fd.read && fd.Note == "" && !fd.waiting && f != nil && !f.IsDeleted && !f.IsBinary && !f.Truncated
+	if pendingPretty {
+		row(Row{Kind: rowNote, Text: "RENDERING DOCUMENT…"})
+		fd.base, fd.MaxCols = base, cols
+		return
+	}
 	switch {
 	case fd.Note != "":
 		row(Row{Kind: rowNote, Text: fd.Note})
@@ -611,6 +639,78 @@ func buildFile(fd *FileDoc, index int) {
 		buildHunks(f, row, &cols)
 	}
 	fd.base, fd.MaxCols = base, cols
+}
+
+func buildPretty(fd *FileDoc, row func(Row), cols *int) {
+	if fd.Pretty == nil {
+		return
+	}
+	for i := range fd.Pretty.Blocks {
+		b := &fd.Pretty.Blocks[i]
+		w := estimatePrettyWidth(b)
+		*cols = max(*cols, w)
+		row(Row{
+			Kind:   rowPretty,
+			Line:   diffparse.Line{OldNum: b.StartLine, NewNum: b.StartLine, Text: ""},
+			Hunk:   i,
+			Pretty: b,
+		})
+	}
+}
+
+func estimatePrettyWidth(b *PrettyBlock) int {
+	switch b.Kind {
+	case BlockCode:
+		maxW := 0
+		for _, line := range strings.Split(b.Code, "\n") {
+			maxW = max(maxW, displayWidth(line))
+		}
+		return maxW
+	case BlockPara, BlockHeading, BlockQuote:
+		w := 0
+		for _, inl := range b.Inlines {
+			w += displayWidth(inl.Text)
+		}
+		if w == 0 {
+			w = displayWidth(b.Code)
+		}
+		return w
+	case BlockList:
+		maxW := 0
+		for _, item := range b.Items {
+			w := 2 // bullet/number + space
+			for _, inl := range item {
+				w += displayWidth(inl.Text)
+			}
+			maxW = max(maxW, w)
+		}
+		return maxW
+	case BlockTable:
+		w := 0
+		for _, cell := range b.TableHead {
+			for _, inl := range cell {
+				w += displayWidth(inl.Text) + 3
+			}
+		}
+		for _, row := range b.TableRows {
+			rw := 0
+			for _, cell := range row {
+				for _, inl := range cell {
+					rw += displayWidth(inl.Text) + 3
+				}
+			}
+			w = max(w, rw)
+		}
+		return w
+	case BlockFrontmatter:
+		w := 0
+		for _, e := range b.Frontmatter {
+			w = max(w, displayWidth(e.Key+e.ValueStr)+3)
+		}
+		return w
+	default:
+		return 20
+	}
 }
 
 // buildHunks lays out the body of a file that has one: each hunk, with the run
@@ -726,9 +826,31 @@ func (a *App) showWhole(i int) {
 	})
 }
 
-// lightFile reads and lexes one file's text. It is called for the file under
-// the cursor: doing it for the whole change up front would mean two jj
-// invocations per file before anything could be drawn.
+// lightAttachedFile starts the full-text work needed immediately after a diff
+// file lands. Ordinary source files keep the old lazy behaviour and are read
+// only when selected; renderable documents are read eagerly because pretty is
+// their default view and must not depend on scroll position.
+func (a *App) lightAttachedFile(i int) {
+	doc := a.diff
+	if doc == nil || i < 0 || i >= len(doc.Files) {
+		return
+	}
+	fd := doc.Files[i]
+	if i == a.fileSel || shouldLightDocument(fd) {
+		a.lightFile(i)
+	}
+}
+
+func shouldLightDocument(fd *FileDoc) bool {
+	if fd == nil || !fd.IsDoc || !fd.PrettyOn || fd.read || fd.loading || fd.Note != "" {
+		return false
+	}
+	f := fd.File
+	return f != nil && !f.IsDeleted && !f.IsBinary && !f.Truncated
+}
+
+// lightFile reads and lexes one file's text. It is called for a source file
+// under the cursor, and as soon as the diff arrives for a renderable document.
 func (a *App) lightFile(i int) {
 	doc := a.diff
 	if doc == nil || i < 0 || i >= len(doc.Files) {
@@ -753,11 +875,61 @@ func (a *App) lightFile(i int) {
 			fd.old = splitLines(oldSrc)
 			fd.newHL, fd.oldHL = newHL, oldHL
 			fd.read = true
+			// Try pretty rendering for docs. Whether parsing succeeds or not, lay
+			// the file out again after the read: before it completed the default
+			// pretty view deliberately showed only its rendering placeholder.
+			if fd.IsDoc && len(newSrc) > 0 {
+				if pretty, err := buildPrettyDoc(fd.Path, newSrc); err == nil && pretty != nil {
+					// Map hunks to blocks for overlay markers.
+					markChanges(pretty, f)
+					// If Before was unavailable, overlay shows only additions: clear del marking by re-marking?
+					if len(oldSrc) == 0 {
+						for j := range pretty.Blocks {
+							if pretty.Blocks[j].Change == ChangeRemoved {
+								pretty.Blocks[j].Change = ChangeContext
+							}
+						}
+					}
+					fd.Pretty = pretty
+				}
+			}
+			if fd.IsDoc && fd.PrettyOn && fd.Note == "" && !f.IsBinary && !f.Truncated {
+				buildFile(fd, i)
+				a.rebuildFile(i)
+			}
 			// The sheet points at these rows, so colouring them is all there
 			// is to do: no rebuild, and nothing to keep in step.
 			fd.applyHighlight(newHL, oldHL)
 		}
 	})
+}
+
+// togglePretty flips the pretty/raw view for a doc file.
+func (a *App) togglePretty(i int) {
+	doc := a.diff
+	if doc == nil || i < 0 || i >= len(doc.Files) {
+		return
+	}
+	fd := doc.Files[i]
+	if !fd.IsDoc {
+		return
+	}
+	fd.PrettyOn = !fd.PrettyOn
+	// If turning pretty on but we haven't rendered yet and file has been read, try to build.
+	if fd.PrettyOn && fd.Pretty == nil && fd.read && len(fd.lines) > 0 && fd.File != nil && !fd.File.IsBinary {
+		src := []byte(strings.Join(fd.lines, "\n"))
+		if pretty, err := buildPrettyDoc(fd.Path, src); err == nil {
+			markChanges(pretty, fd.File)
+			fd.Pretty = pretty
+		}
+	}
+	buildFile(fd, i)
+	a.rebuildFile(i)
+	if fd.PrettyOn {
+		a.note("pretty on for %s", fd.Path)
+	} else {
+		a.note("raw for %s", fd.Path)
+	}
 }
 
 // splitLines cuts a file into lines without keeping a trailing empty one for
@@ -1246,6 +1418,34 @@ func (a *App) notesByPath() map[string][]state.Comment {
 // buildFile does the same with the rows: the sheet holds indices into them.
 // Nothing may read the sheet between this and the splice that takes the refs,
 // because for that moment the two disagree about how many notes a file has.
+func prettyCovers(c state.Comment, b *PrettyBlock) bool {
+	if b == nil {
+		return false
+	}
+	// Pretty blocks represent After side lines. For old side, still overlap via same numbers (approx).
+	// We check if comment range overlaps block range.
+	lo, hi := c.Line, c.LastLine()
+	return b.StartLine <= hi && b.EndLine >= lo
+}
+
+func prettyAnchors(c state.Comment, b *PrettyBlock) bool {
+	if b == nil {
+		return false
+	}
+	last := c.LastLine()
+	return b.StartLine <= last && b.EndLine >= last
+}
+
+func prettyAnchorsDraft(d *draft, b *PrettyBlock) bool {
+	if d == nil || b == nil {
+		return false
+	}
+	last := max(d.line, d.endLine)
+	// Draft side matters but pretty is After; treat similarly to prettyCovers.
+	// If draft is on old side, still anchor if line inside block.
+	return b.StartLine <= last && b.EndLine >= last
+}
+
 func (a *App) fileRefs(fd *FileDoc, comments []state.Comment, index int) (refs []rowRef, hunks []int) {
 	refs = make([]rowRef, 0, len(fd.base)+len(comments)+1)
 	notes := make([]Row, 0, len(comments)+1)
@@ -1267,18 +1467,34 @@ func (a *App) fileRefs(fd *FileDoc, comments []state.Comment, index int) (refs [
 					break
 				}
 			}
-		}
-		refs = append(refs, rowRef{file: int32(index), idx: int32(i)})
-		if row.Kind != rowLine {
-			continue
-		}
-		for j := range comments {
-			if anchors(comments[j], row.Line) {
-				note(Row{Kind: rowComment, Comment: &comments[j], Hunk: row.Hunk})
+		} else if row.Kind == rowPretty && row.Pretty != nil {
+			row.Noted = false
+			for _, c := range comments {
+				if c.Span() && prettyCovers(c, row.Pretty) {
+					row.Noted = true
+					break
+				}
 			}
 		}
-		if d := a.draft; d != nil && d.path == fd.Path && anchorsDraft(d, row.Line) {
-			note(Row{Kind: rowDraft, Hunk: row.Hunk})
+		refs = append(refs, rowRef{file: int32(index), idx: int32(i)})
+		if row.Kind == rowLine {
+			for j := range comments {
+				if anchors(comments[j], row.Line) {
+					note(Row{Kind: rowComment, Comment: &comments[j], Hunk: row.Hunk})
+				}
+			}
+			if d := a.draft; d != nil && d.path == fd.Path && anchorsDraft(d, row.Line) {
+				note(Row{Kind: rowDraft, Hunk: row.Hunk})
+			}
+		} else if row.Kind == rowPretty && row.Pretty != nil {
+			for j := range comments {
+				if prettyAnchors(comments[j], row.Pretty) {
+					note(Row{Kind: rowComment, Comment: &comments[j], Hunk: row.Hunk})
+				}
+			}
+			if d := a.draft; d != nil && d.path == fd.Path && prettyAnchorsDraft(d, row.Pretty) {
+				note(Row{Kind: rowDraft, Hunk: row.Hunk})
+			}
 		}
 	}
 	fd.notes = notes

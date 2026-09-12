@@ -133,7 +133,7 @@ func TestEveryCommandReachesTheLog(t *testing.T) {
 	r := sh(t, t.Context(), "echo streamed")
 	io.Copy(io.Discard, r)
 	r.Close()
-	Stream(t.Context(), t.TempDir(), "peneira-no-such-command")
+	Stream(t.Context(), t.TempDir(), "check-no-such-command")
 
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != 3 {
@@ -142,7 +142,7 @@ func TestEveryCommandReachesTheLog(t *testing.T) {
 	for i, want := range []string{
 		`msg="command ran" cmd=sh args="-c exit 3" dir=`,
 		`msg="command ran" cmd=sh args="-c echo streamed" dir=`,
-		`msg="command ran" cmd=peneira-no-such-command args="" dir=`,
+		`msg="command ran" cmd=check-no-such-command args="" dir=`,
 	} {
 		if !strings.Contains(lines[i], want) {
 			t.Errorf("line %d = %q, want it to hold %q", i, lines[i], want)
@@ -157,7 +157,7 @@ func TestEveryCommandReachesTheLog(t *testing.T) {
 }
 
 func TestAMissingCommandIsReportedAtTheStart(t *testing.T) {
-	_, err := Stream(t.Context(), t.TempDir(), "peneira-no-such-command")
+	_, err := Stream(t.Context(), t.TempDir(), "check-no-such-command")
 	if err == nil {
 		t.Fatal("starting a command that does not exist succeeded")
 	}

@@ -10,7 +10,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // gtx returns a context of the size given, with the metrics a test measures

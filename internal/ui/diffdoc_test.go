@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chromafish/peneira/internal/diffparse"
-	"github.com/chromafish/peneira/internal/highlight"
-	"github.com/chromafish/peneira/internal/state"
+	"github.com/chromafish/check/internal/diffparse"
+	"github.com/chromafish/check/internal/highlight"
+	"github.com/chromafish/check/internal/state"
 )
 
 // threeFileDiff is a change over three files, each with one hunk of one

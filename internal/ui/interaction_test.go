@@ -9,7 +9,7 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 func TestClickSelectsRevision(t *testing.T) {

@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/chromafish/peneira/internal/git"
-	"github.com/chromafish/peneira/internal/jj"
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/git"
+	"github.com/chromafish/check/internal/jj"
+	"github.com/chromafish/check/internal/vcs"
 )
 
 // Open finds the repository containing dir and opens it with the backend that

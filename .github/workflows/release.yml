@@ -47,5 +47,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" $prerelease \
             --title "$GITHUB_REF_NAME" \
             --notes-file build/notes.md \
-            "build/Peneira-$GITHUB_REF_NAME-macos-universal.zip" \
-            "build/peneira-$GITHUB_REF_NAME-macos-universal.tar.gz"
+            "build/Check-$GITHUB_REF_NAME-macos-universal.zip" \
+            "build/check-$GITHUB_REF_NAME-macos-universal.tar.gz"

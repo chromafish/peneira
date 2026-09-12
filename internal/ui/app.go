@@ -14,10 +14,10 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
-	"github.com/chromafish/peneira/internal/state"
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/state"
+	"github.com/chromafish/check/internal/vcs"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // Pane identifies which of the three columns has keyboard focus. They are
@@ -43,7 +43,7 @@ type App struct {
 	repo  vcs.Repo
 	store *state.Store
 
-	// dir is the directory peneira was opened on, which may be below the
+	// dir is the directory Check was opened on, which may be below the
 	// repository's root. What is declared there is what the review runs.
 	dir      string
 	repoName string
@@ -272,10 +272,10 @@ func (a *App) setTitle() {
 		return
 	}
 	if a.repoName == "" {
-		a.win.Option(app.Title("Peneira"))
+		a.win.Option(app.Title("Check"))
 		return
 	}
-	a.win.Option(app.Title("Peneira — " + a.repoName))
+	a.win.Option(app.Title("Check — " + a.repoName))
 }
 
 // Run drives the window until it closes.

@@ -10,9 +10,9 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 
-	"github.com/chromafish/peneira/internal/sonda"
+	"github.com/chromafish/check/internal/sonda"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/vcs"
 )
 
 // args is how jj is asked for a diff.

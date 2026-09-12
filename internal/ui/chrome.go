@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/io/clipboard"
 	"gioui.org/io/event"
@@ -14,8 +15,10 @@ import (
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // layoutHeader draws the top strip: what is being reviewed on the left, the
@@ -27,15 +30,15 @@ func (a *App) layoutHeader(gtx layout.Context, width, height int) {
 	cell := ui.Cell(gtx, reef.SizeUI, false)
 	baseline := (height - cell.Y) / 2
 
-	// The masthead opens with the wordmark: lowercase, condensed, set in moss
-	// on the page rather than reversed out of a moss block.
+	// The masthead opens with the application mark at the same visual scale as
+	// the repository control beside it.
 	x := pad
 	{
 		sub := gtx
-		sub.Constraints.Min = image.Point{}
-		sub.Constraints.Max.X = width
+		size := min(gtx.Dp(reef.GapRow), height-gtx.Dp(reef.Sp3)*2)
+		sub.Constraints = layout.Exact(image.Pt(size, size))
 		macro := op.Record(gtx.Ops)
-		d := ui.Wordmark(sub, reef.SizeWordmark, ui.P.Action, "peneira")
+		d := layoutLogo(sub, ui.P.Action, ui.P.Accent)
 		call := macro.Stop()
 
 		off := op.Offset(image.Pt(x, (height-d.Size.Y)/2)).Push(gtx.Ops)
@@ -94,6 +97,35 @@ func (a *App) layoutHeader(gtx layout.Context, width, height int) {
 			a.revsetInput.Layout(gtx, ui.Theme)
 		})
 	}
+}
+
+// layoutLogo draws the mark in final-size vectors. Keeping the two planes as
+// geometry avoids the blur that comes from shrinking the large brand PNG into
+// the masthead's small pixel grid.
+func layoutLogo(gtx layout.Context, upper, lower reef.ColorNRGBA) layout.Dimensions {
+	size := min(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)
+	scale := float32(size) / 28
+	drawLogoPlane(gtx, scale, upper, []f32.Point{
+		{X: 3, Y: 15}, {X: 4, Y: 11}, {X: 10, Y: 3}, {X: 14, Y: 2},
+		{X: 18, Y: 4}, {X: 24, Y: 10}, {X: 23, Y: 12}, {X: 6, Y: 22},
+		{X: 3, Y: 19},
+	})
+	drawLogoPlane(gtx, scale, lower, []f32.Point{
+		{X: 7, Y: 23}, {X: 24, Y: 13}, {X: 26, Y: 16}, {X: 25, Y: 20},
+		{X: 19, Y: 25}, {X: 14, Y: 27}, {X: 10, Y: 26},
+	})
+	return layout.Dimensions{Size: image.Pt(size, size)}
+}
+
+func drawLogoPlane(gtx layout.Context, scale float32, c reef.ColorNRGBA, points []f32.Point) {
+	var path clip.Path
+	path.Begin(gtx.Ops)
+	path.MoveTo(points[0].Mul(scale))
+	for _, point := range points[1:] {
+		path.LineTo(point.Mul(scale))
+	}
+	path.Close()
+	paint.FillShape(gtx.Ops, c, clip.Outline{Path: path.End()}.Op())
 }
 
 // headerText draws one run of the masthead at an explicit baseline, so the

@@ -9,10 +9,10 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 
-	"github.com/chromafish/peneira/internal/diffparse"
-	"github.com/chromafish/peneira/internal/state"
+	"github.com/chromafish/check/internal/diffparse"
+	"github.com/chromafish/check/internal/state"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // Code has to be able to leave the window: into a message, into a terminal,

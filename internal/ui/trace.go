@@ -56,7 +56,7 @@ func startTrace() {
 	if dest != "1" && dest != "true" {
 		f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "peneira: cannot write the trace to %s: %v\n", dest, err)
+			fmt.Fprintf(os.Stderr, "check: cannot write the trace to %s: %v\n", dest, err)
 		} else {
 			traceTo = f
 		}
@@ -107,7 +107,7 @@ func startTrace() {
 	// screen, so it is not dumped automatically. Ask for it instead, from
 	// another terminal, at the moment the window is stuck:
 	//
-	//	kill -USR1 $(pgrep -x peneira)
+	//	kill -USR1 $(pgrep -x check)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGUSR1)
 	go func() {
@@ -147,7 +147,7 @@ func tracef(format string, args ...any) {
 	if traceTo == nil {
 		return
 	}
-	fmt.Fprintf(traceTo, "peneira %s: "+format+"\n",
+	fmt.Fprintf(traceTo, "check %s: "+format+"\n",
 		append([]any{time.Now().Format("15:04:05.000")}, args...)...)
 }
 

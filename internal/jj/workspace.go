@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chromafish/peneira/internal/proc"
+	"github.com/chromafish/check/internal/proc"
 )
 
 // Workspace adds dir as a jj workspace of the repository the first time, and

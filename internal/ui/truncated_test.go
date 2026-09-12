@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chromafish/peneira/internal/diffparse"
+	"github.com/chromafish/check/internal/diffparse"
 )
 
 // bigRepo is a git repository whose one commit adds a file past the per-file

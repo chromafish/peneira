@@ -19,10 +19,10 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
-	"github.com/chromafish/peneira/internal/repo"
-	"github.com/chromafish/peneira/internal/state"
+	"github.com/chromafish/check/internal/repo"
+	"github.com/chromafish/check/internal/state"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // harness drives a real App through Gio's input router, without a window or a
@@ -139,7 +139,7 @@ func newRepo(t *testing.T) string {
 
 // newGitRepo builds the git equivalent of newRepo: one commit, then edits left
 // uncommitted in the working tree, which is the shape the interface sees when
-// somebody opens peneira on work in progress.
+// somebody opens Check on work in progress.
 func newGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

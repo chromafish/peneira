@@ -22,5 +22,5 @@ func WorkspaceDir(root string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(root))
 	name := filepath.Base(root) + "-" + hex.EncodeToString(sum[:4])
-	return filepath.Join(base, "peneira", "sonda", name), nil
+	return filepath.Join(base, "check", "sonda", name), nil
 }

@@ -6,7 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/chromafish/peneira/internal/sonda"
+	"github.com/chromafish/check/internal/sonda"
 )
 
 // A log is set as lines of runs, each run in one role, and the role decides

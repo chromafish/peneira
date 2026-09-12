@@ -7,9 +7,9 @@ import (
 	"gioui.org/font"
 	"gioui.org/layout"
 
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/vcs"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // layoutRevs draws the revision list with its ancestry graph.

@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/chromafish/peneira/internal/diffparse"
-	"github.com/chromafish/peneira/internal/highlight"
-	"github.com/chromafish/peneira/internal/state"
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/diffparse"
+	"github.com/chromafish/check/internal/highlight"
+	"github.com/chromafish/check/internal/state"
+	"github.com/chromafish/check/internal/vcs"
 )
 
 // rowKind distinguishes the several things that can occupy a row of the diff

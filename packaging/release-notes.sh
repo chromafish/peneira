@@ -22,11 +22,11 @@ cat <<'NOTE'
 
 ## Installing
 
-Download the `.zip`, unzip it, and drag `Peneira.app` to `/Applications`. The
+Download the `.zip`, unzip it, and drag `Check.app` to `/Applications`. The
 build is not signed or notarised, so the first launch needs either a
 right-click → Open, or:
 
-    xattr -dr com.apple.quarantine /Applications/Peneira.app
+    xattr -dr com.apple.quarantine /Applications/Check.app
 
 The `.tar.gz` holds the same binary for `~/.local/bin`.
 NOTE

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // Three schemes people actually use, in the form they are published in. Nord

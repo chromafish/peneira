@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/vcs"
 )
 
 // newRepo builds a small git repository: two commits, a rename in the second,

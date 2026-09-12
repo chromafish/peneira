@@ -12,9 +12,9 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/unit"
 
-	"github.com/chromafish/peneira/internal/diffparse"
-	"github.com/chromafish/peneira/internal/highlight"
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/internal/diffparse"
+	"github.com/chromafish/check/internal/highlight"
+	"github.com/chromafish/check/reef"
 )
 
 // prettyRune is one character and the Markdown inline style that owns it.

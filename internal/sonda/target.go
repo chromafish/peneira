@@ -18,8 +18,8 @@ import (
 )
 
 // File is the name of the file targets are read from. It sits in the directory
-// peneira was opened on, committed beside the code it describes.
-const File = "peneira.toml"
+// Check was opened on, committed beside the code it describes.
+const File = "check.toml"
 
 // Target is one program in the repository that can be built and run.
 type Target struct {

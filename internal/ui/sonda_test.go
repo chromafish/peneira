@@ -10,7 +10,7 @@ import (
 
 	"gioui.org/io/key"
 
-	"github.com/chromafish/peneira/internal/sonda"
+	"github.com/chromafish/check/internal/sonda"
 )
 
 // declareTarget writes a target into the repository whose program is a shell

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chromafish/peneira/internal/sonda"
+	"github.com/chromafish/check/internal/sonda"
 )
 
 func TestErrorsAloneUnlessAskedForMore(t *testing.T) {

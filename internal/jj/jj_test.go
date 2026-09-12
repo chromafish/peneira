@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/vcs"
 )
 
 // record builds a log record with the field separators the template emits.

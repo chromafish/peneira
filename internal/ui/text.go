@@ -4,7 +4,7 @@ import (
 	"gioui.org/font"
 	"gioui.org/layout"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // Local names for the design system's text helpers, bound to the two sizes

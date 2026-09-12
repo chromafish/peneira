@@ -44,14 +44,14 @@ func Start() {
 	if dest != "1" && dest != "true" {
 		f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "peneira: cannot write the log to %s: %v\n", dest, err)
+			fmt.Fprintf(os.Stderr, "check: cannot write the log to %s: %v\n", dest, err)
 		} else {
 			w = f
 		}
 	}
 	logger, err := New(w, os.Getenv(envLevel))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "peneira:", err)
+		fmt.Fprintln(os.Stderr, "check:", err)
 	}
 	slog.SetDefault(logger)
 }

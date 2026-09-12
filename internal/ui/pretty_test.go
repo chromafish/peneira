@@ -12,9 +12,9 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
-	"github.com/chromafish/peneira/internal/diffparse"
-	"github.com/chromafish/peneira/internal/vcs"
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/internal/diffparse"
+	"github.com/chromafish/check/internal/vcs"
+	"github.com/chromafish/check/reef"
 )
 
 func TestIsDocUsesOnlyTheCaseInsensitiveExtension(t *testing.T) {

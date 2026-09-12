@@ -9,9 +9,9 @@ import (
 	"gioui.org/font"
 	"gioui.org/io/key"
 
-	"github.com/chromafish/peneira/internal/state"
+	"github.com/chromafish/check/internal/state"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // The sheet is modal. While it is up the keyboard belongs to it, so a keystroke

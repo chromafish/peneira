@@ -14,10 +14,10 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 
-	"github.com/chromafish/peneira/internal/diffparse"
-	"github.com/chromafish/peneira/internal/highlight"
+	"github.com/chromafish/check/internal/diffparse"
+	"github.com/chromafish/check/internal/highlight"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // tabWidth is how far a tab advances in the diff body.

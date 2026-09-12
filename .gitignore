@@ -1,3 +1,5 @@
+/check
 /peneira
 /build/
 *.png
+!assets/logo.png

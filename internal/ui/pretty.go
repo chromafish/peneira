@@ -12,8 +12,8 @@ import (
 	"github.com/yuin/goldmark/text"
 	"gopkg.in/yaml.v3"
 
-	"github.com/chromafish/peneira/internal/diffparse"
-	"github.com/chromafish/peneira/internal/highlight"
+	"github.com/chromafish/check/internal/diffparse"
+	"github.com/chromafish/check/internal/highlight"
 )
 
 // FrontmatterEntry preserves key order.

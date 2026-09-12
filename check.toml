@@ -1,6 +1,6 @@
 [[target]]
-name = "peneira"
+name = "check"
 dir = "."
 build = ["make", "build"]
-run = ["./peneira"]
+run = ["./check"]
 env = { REVIEW_LOG = "1", REVIEW_LOG_LEVEL = "info" }

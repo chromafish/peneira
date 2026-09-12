@@ -9,7 +9,7 @@ toc::[]
 
 == Context
 
-Peneira reviews a diff. A diff states what the text of a program became. It
+Check reviews a diff. A diff states what the text of a program became. It
 does not state what the program does when it runs, so behaviour is judged by
 reading, and the change is approved on the strength of that reading.
 
@@ -67,7 +67,7 @@ a shell being present or on quoting rules.
 The build command may be absent. Interpreted programs and `go run` style
 commands build as part of starting.
 
-Definitions are read from the directory peneira was opened on. A monorepo
+Definitions are read from the directory Check was opened on. A monorepo
 opened at its root declares every program it holds; opened at one program's
 directory, it declares that one, and the rest are not the review's concern.
 
@@ -186,7 +186,7 @@ values distinguished. A log that did not parse keeps its raw line and sits in
 place among the rest, since output that failed to parse is still output.
 The raw line stays reachable for every log.
 
-Highlighting follows the same rules the rest of peneira highlights code by.
+Highlighting follows the same rules the rest of Check highlights code by.
 Levels carry colour, so an error is found without reading for it, and keys,
 quoted strings and numbers are set apart inside a line.
 
@@ -200,15 +200,15 @@ Targets, runs and logs are held in memory for the life of the session.
 Nothing is written.
 
 The one thing read from disk is the target description. It is TOML, in the
-directory peneira was opened on, committed alongside the code it describes, so
+directory Check was opened on, committed alongside the code it describes, so
 that it is the same for everyone reviewing that directory.
 
 [source,toml]
 ----
 [[target]]
-name = "peneira"
+name = "check"
 dir = "."
 build = ["make", "build"]
-run = ["./peneira"]
+run = ["./check"]
 env = { REVIEW_TRACE = "1" }
 ----

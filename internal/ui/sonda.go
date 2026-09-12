@@ -12,10 +12,10 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/layout"
 
-	"github.com/chromafish/peneira/internal/sonda"
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/sonda"
+	"github.com/chromafish/check/internal/vcs"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // Sonda is a screen of its own, entered from the review and left back to it.

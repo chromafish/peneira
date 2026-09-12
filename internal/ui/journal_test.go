@@ -8,7 +8,7 @@ import (
 
 	"gioui.org/io/key"
 
-	"github.com/chromafish/peneira/internal/sonda"
+	"github.com/chromafish/check/internal/sonda"
 )
 
 // captureLog points the behaviour log at a buffer for the life of the test.

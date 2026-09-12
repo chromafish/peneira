@@ -12,11 +12,11 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 
-	"github.com/chromafish/peneira/internal/notes"
-	"github.com/chromafish/peneira/internal/state"
+	"github.com/chromafish/check/internal/notes"
+	"github.com/chromafish/check/internal/state"
 
-	"github.com/chromafish/peneira/internal/vcs"
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/internal/vcs"
+	"github.com/chromafish/check/reef"
 )
 
 // fileSource lets the exporter read either side of a file out of the

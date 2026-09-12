@@ -12,7 +12,7 @@ import (
 //
 // Nothing about a review is kept: read marks and notes live in memory for as
 // long as the window is open. See the Store.
-const dirName = "peneira"
+const dirName = "check"
 
 // dir returns the application's configuration directory, creating it if it is
 // not there.

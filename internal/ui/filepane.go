@@ -8,9 +8,9 @@ import (
 	"gioui.org/font"
 	"gioui.org/layout"
 
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/vcs"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // layoutFiles draws the manifest: every path the diff touches, with its size

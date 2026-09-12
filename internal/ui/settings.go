@@ -14,9 +14,9 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
-	"github.com/chromafish/peneira/internal/state"
+	"github.com/chromafish/check/internal/state"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // Settings are the colours and the type: which scheme the interface is drawn

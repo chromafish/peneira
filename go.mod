@@ -1,4 +1,4 @@
-module github.com/chromafish/peneira
+module github.com/chromafish/check
 
 go 1.27.1
 

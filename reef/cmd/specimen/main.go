@@ -32,7 +32,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/unit"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 func main() {

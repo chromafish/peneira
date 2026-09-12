@@ -177,7 +177,7 @@ func TestTheEnvironmentAndDirectoryAreTheTargets(t *testing.T) {
 }
 
 func TestACommandThatCannotStartSaysSo(t *testing.T) {
-	r := Start(Target{Name: "t", Dir: t.TempDir(), Run: []string{"peneira-no-such-command"}}, "x", nil)
+	r := Start(Target{Name: "t", Dir: t.TempDir(), Run: []string{"check-no-such-command"}}, "x", nil)
 	st := wait(t, r)
 	if !strings.HasPrefix(st.Ended, "cannot start") {
 		t.Errorf("ended %q", st.Ended)

@@ -11,7 +11,7 @@ import (
 	"github.com/bytesparadise/libasciidoc/pkg/types"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/chromafish/peneira/internal/highlight"
+	"github.com/chromafish/check/internal/highlight"
 )
 
 // renderAsciiDocBody renders AsciiDoc source into PrettyBlocks using libasciidoc parser.
@@ -22,7 +22,7 @@ func renderAsciiDocBody(path string, body []byte, fmLines int) ([]PrettyBlock, e
 	// pkg/parser/document_processing_apply_substitutions.go:630) that flood
 	// stderr / REVIEW_LOG. The library logs via the global logrus logger at
 	// InfoLevel; raising to WarnLevel preserves Warn/Error while silencing
-	// per-fragment Info traces. peneira's own logs use slog, so this does not
+	// per-fragment Info traces. Check's own logs use slog, so this does not
 	// suppress app logs. Restore afterwards for correctness (no global
 	// suppression beyond the parse).
 	if lvl := log.GetLevel(); lvl > log.WarnLevel {

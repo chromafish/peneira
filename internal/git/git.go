@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chromafish/peneira/internal/proc"
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/proc"
+	"github.com/chromafish/check/internal/vcs"
 )
 
 // Field and record separators for log formats. They cannot occur in commit

@@ -9,7 +9,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // A whole application in the shape reef expects: one UI carried on the

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/chromafish/peneira/internal/proc"
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/proc"
+	"github.com/chromafish/check/internal/vcs"
 )
 
 // diffArgs asks git for a diff of the given spec, with whatever output flags

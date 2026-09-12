@@ -9,10 +9,10 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/layout"
 
-	"github.com/chromafish/peneira/internal/diffparse"
-	"github.com/chromafish/peneira/internal/state"
+	"github.com/chromafish/check/internal/diffparse"
+	"github.com/chromafish/check/internal/state"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // draft is a comment being written. Only one exists at a time.

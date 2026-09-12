@@ -12,11 +12,11 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 
-	"github.com/chromafish/peneira/internal/repo"
-	"github.com/chromafish/peneira/internal/state"
-	"github.com/chromafish/peneira/internal/vcs"
+	"github.com/chromafish/check/internal/repo"
+	"github.com/chromafish/check/internal/state"
+	"github.com/chromafish/check/internal/vcs"
 
-	"github.com/chromafish/peneira/reef"
+	"github.com/chromafish/check/reef"
 )
 
 // layoutOpen draws the screen shown when no repository is loaded: a way to

@@ -4,7 +4,7 @@ BUNDLE := build/Peneira.app
 VERSION ?= dev
 LDFLAGS := -X main.version=$(VERSION)
 
-STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2025.1.1
+STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2026.2.1
 
 .PHONY: all build run test vet fmt fmtcheck lint check app universal dist clean install
 

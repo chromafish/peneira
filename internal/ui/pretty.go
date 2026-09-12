@@ -488,8 +488,7 @@ func tableToBlock(src []byte, n ast.Node, fmLines int) *PrettyBlock {
 
 func extractInlines(src []byte, n ast.Node) []Inline {
 	var inlines []Inline
-	var walk func(node ast.Node)
-	walk = func(node ast.Node) {
+	walk := func(node ast.Node) {
 		for child := node.FirstChild(); child != nil; child = child.NextSibling() {
 			switch child.Kind() {
 			case ast.KindText:
